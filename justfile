@@ -21,14 +21,14 @@ test-release:
 # Create a release on GitHub
 gh-release:
     @echo "📢 Creating GitHub release for version {{VERSION}}"
-    gh release create {{VERSION}} --title "{{CRATE_NAME}} {{VERSION}}" --notes "Release {{VERSION}}"
+    gh release create {{VERSION}}
 
 # Release the crate to Homebrew
 homebrew-release:
     @echo "🍺 Releasing {{CRATE_NAME}} to Homebrew..."
     brew tap-new {{GITHUB_REPO}}
-    brew create --tap {{GITHUB_REPO}} https://github.com/{{GITHUB_REPO}}/releases/download/{{VERSION}}/{{CRATE_NAME}}-{{VERSION}}.tar.gz
-    brew install --build-from-source {{GITHUB_REPO}}/{{CRATE_NAME}}
+    brew create --tap {{GITHUB_REPO}} https://github.com/{{GITHUB_REPO}}/archive/refs/tags/{{VERSION}}.tar.gz
+    brew install --build-from-source {{GITHUB_REPO}}/{{CRATE_NAME}} --formula
 
 # Release the crate to Debian APT
 debian-release:
