@@ -1,6 +1,8 @@
 # Feluda
 
-Current Stable: `v1.0.0`
+[![Crates.io Version](https://img.shields.io/crates/v/feluda)
+](https://crates.io/crates/feluda)
+ ![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
 
 **Feluda** is a Rust-based command-line tool that analyzes the dependencies of a project, notes down their licenses, and flags any permissions that restrict personal or commercial usage.
 
