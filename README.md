@@ -1,5 +1,7 @@
 # Feluda
 
+Current Stable: `v1.0.0`
+
 **Feluda** is a Rust-based command-line tool that analyzes the dependencies of a project, notes down their licenses, and flags any permissions that restrict personal or commercial usage.
 
 ## Features
@@ -100,91 +102,12 @@ In case you strictly need only the restrictive dependencies:
 feluda --strict
 ```
 
----
-
-## Contributing
-
-Welcoming contributions from the community! 
-
-### Folder Structure:
-
-```sh
-feluda/
-├── src/
-│   ├── main.rs          # CLI entry point
-│   ├── cli.rs           # CLI argument handling
-│   ├── parser.rs        # Dependency parsing logic
-│   ├── licenses.rs      # License analysis
-│   └── reporter.rs      # Output formatting and reporting
-├── Cargo.toml           # Project metadata
-├── LICENSE              # Project license
-└── README.md            # Project documentation
-```
-
-### Setting Up for Development
-
-1. Fork the repository and clone it to your local machine:
-
-```sh
-git clone https://github.com/yourusername/feluda.git
-cd feluda
-```
-
-2. Install dependencies and tools:
-
-```sh
-cargo build
-```
-
-3. Run locally
-
-```sh
-./target/debug/feluda --help
-```
-
-4. Run tests to ensure everything is working:
-
-```sh
-cargo test
-```
-
-### Guidelines
-
-- **Code Style**: Follow Rust's standard coding conventions.
-- **Testing**: Ensure your changes are covered by unit tests.
-- **Documentation**: Update relevant documentation and comments.
-
-### Submitting Changes
-
-1. Create a new branch for your feature or bugfix:
-
-```sh
-git checkout -b feature/my-new-feature
-```
-
-2. Commit your changes with a meaningful commit message:
-
-```sh
-git commit -m "Add support for XYZ feature"
-```
-
-3. Push the branch to your fork:
-
-```sh
-git push origin feature/my-new-feature
-```
-
-4. Open a pull request on GitHub.
-
-### Reporting Issues
-
-If you encounter a bug or have a feature request, please open an issue in the repository.
+Checkout [contributing guidelines](./CONTRIBUTING.md) if you are looking to contribute to this project.
 
 ---
 
 ## License
 
 Feluda is licensed under the [MIT License with Commons Clause](./LICENSE).
-
 
 _Happy coding with Feluda!_ 🚀
