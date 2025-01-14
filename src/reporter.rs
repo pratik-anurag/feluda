@@ -9,10 +9,10 @@ pub fn generate_report(data: Vec<LicenseInfo>, json: bool, verbose: bool) {
             if verbose {
                 println!(
                     "Name: {}, Version: {}, License: {:?}, Restrictive: {}",
-                    info.name, info.version, info.license, info.is_restrictive
+                    info.name, info.version, info.get_license(), info.is_restrictive
                 );
             } else {
-                println!("{}@{} - {:?}", info.name, info.version, info.license);
+                println!("{}@{} - {:?}", info.name, info.version, info.get_license());
             }
         }
     }

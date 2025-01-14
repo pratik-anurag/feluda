@@ -9,6 +9,19 @@ pub struct LicenseInfo {
     pub is_restrictive: bool,
 }
 
+impl LicenseInfo {
+    pub fn get_license(&self) -> String {
+        match &self.license {
+            Some(license_name) => {
+                String::from(license_name)
+            }
+            None => {
+                String::from("No License")
+            }
+        }
+    }
+}
+
 pub fn analyze_licenses(packages: Vec<Package>) -> Vec<LicenseInfo> {
     packages
         .into_iter()
