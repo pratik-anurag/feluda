@@ -56,6 +56,25 @@ feluda --path /path/to/Cargo.toml
 feluda --json
 ```
 
+Sample Output for a sample cargo.toml file containing `serde` and `tokio` dependencies:
+
+```json
+[
+  {
+    "name": "serde",
+    "version": "1.0.151",
+    "license": "MIT",
+    "is_restrictive": false
+  },
+  {
+    "name": "tokio",
+    "version": "1.0.2",
+    "license": "MIT",
+    "is_restrictive": false
+  }
+]
+```
+
 ### Verbose Mode
 
 For detailed information about each dependency:
@@ -116,7 +135,6 @@ cargo test
 
 - **Code Style**: Follow Rust's standard coding conventions.
 - **Testing**: Ensure your changes are covered by unit tests.
-
 - **Documentation**: Update relevant documentation and comments.
 
 ### Submitting Changes
