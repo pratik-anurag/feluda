@@ -23,6 +23,20 @@ gh-release:
     @echo "📢 Creating GitHub release for version {{VERSION}}"
     gh release create {{VERSION}} --title "{{CRATE_NAME}} {{VERSION}}" --notes "Release {{VERSION}}"
 
+# Release the crate to Homebrew
+homebrew-release:
+    @echo "🍺 Releasing {{CRATE_NAME}} to Homebrew..."
+    brew tap-new {{GITHUB_REPO}}
+    brew create --tap {{GITHUB_REPO}} https://github.com/{{GITHUB_REPO}}/releases/download/{{VERSION}}/{{CRATE_NAME}}-{{VERSION}}.tar.gz
+    brew install --build-from-source {{GITHUB_REPO}}/{{CRATE_NAME}}
+
+# Release the crate to Debian APT
+debian-release:
+    @echo "📦 Releasing {{CRATE_NAME}} to Debian APT..."
+    debmake -b -u {{VERSION}} -n {{CRATE_NAME}}
+    dpkg-buildpackage -us -uc
+    dput ppa:your-ppa-name ../{{CRATE_NAME}}_{{VERSION}}_source.changes
+
 # Publish the crate to crates.io
 publish:
     just build
