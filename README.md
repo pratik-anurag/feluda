@@ -83,6 +83,14 @@ For detailed information about each dependency:
 feluda --verbose
 ```
 
+### Strict Mode
+
+In case you strictly need only the restrictive dependencies:
+
+```sh
+feluda --strict
+```
+
 ---
 
 ## Contributing

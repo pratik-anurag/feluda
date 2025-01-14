@@ -13,5 +13,5 @@ fn main() {
     let args = Cli::parse();
     let dependencies = parse_dependencies(&args.path);
     let analyzed_data = analyze_licenses(dependencies);
-    generate_report(analyzed_data, args.json, args.verbose);
+    generate_report(analyzed_data, args.json, args.verbose, args.strict);
 }

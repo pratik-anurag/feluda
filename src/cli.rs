@@ -15,4 +15,8 @@ pub struct Cli {
     /// Enable verbose output
     #[arg(long)]
     pub verbose: bool,
+
+    /// Show only restrictive dependencies in strict mode
+    #[arg(long)]
+    pub strict: bool,
 }
