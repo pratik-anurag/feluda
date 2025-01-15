@@ -5,14 +5,14 @@
 
 ![Crates.io Downloads (latest version)](https://img.shields.io/crates/dv/feluda)
 
-**Feluda** is a Rust-based command-line tool that analyzes the dependencies of a project, notes down their licenses, and flags any permissions that restrict personal or commercial usage.
+🔎 **Feluda** is a Rust-based command-line tool that analyzes the dependencies of a project, notes down their licenses, and flags any permissions that restrict personal or commercial usage.
 
 ## Features
 
 - Parse your project to identify dependencies and their licenses.
 - Classify licenses into permissive, restrictive, or unknown categories.
 - Flag dependencies with licenses that may restrict personal or commercial use.
-- Output results in plain text or JSON format.
+- Output results in plain text, JSON or TUI formats. There's also a gist format which is available in strict mode to output a single line only.
 
 ### Support Languages
 
@@ -103,6 +103,14 @@ In case you strictly need only the restrictive dependencies:
 
 ```sh
 feluda --strict
+```
+
+### TUI Mode
+
+We've an awesome ✨ TUI mode available to browse through the dependencies in a visually appealing way as well:
+
+```sh
+feluda --gui
 ```
 
 Checkout [contributing guidelines](./CONTRIBUTING.md) if you are looking to contribute to this project.
