@@ -9,13 +9,13 @@ fn detect_project_type(args_path: &str) -> Option<&'static str> {
         .unwrap_or_else(|_| panic!("❌ Error: Invalid path '{}'", args_path));
 
     if Path::new(&project_path).join("Cargo.toml").exists() {
-        println!("🦀");
+        // println!("🦀");
         Some("rust")
     } else if Path::new(&project_path).join("package.json").exists() {
-        println!("⬢");
+        // println!("⬢");
         Some("node")
     } else if Path::new(&project_path).join("go.mod").exists() {
-        println!("🐹");
+        // println!("🐹");
         Some("go")
     } else {
         None

@@ -1,6 +1,6 @@
 [package]
 name = "feluda"
-version = "1.1.1"
+version = "1.2.0"
 edition = "2021"
 description = "A CLI tool to check dependency licenses."
 readme = "README.md"
@@ -26,6 +26,7 @@ scraper = "0.22.0"
 color-eyre = "0.6.3"
 ratatui = "0.29.0"
 unicode-width = "0.2.0"
+spinners = "4.1.1"
 
 [[bin]]
 name = "feluda"

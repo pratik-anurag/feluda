@@ -1,4 +1,5 @@
 use clap::{Parser, ArgGroup};
+use std::io::{self, Write};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -24,4 +25,9 @@ pub struct Cli {
     #[arg(long, short)]
     pub gui: bool,
 
+}
+
+pub fn clear_last_line() {
+    print!("\x1b[1A\x1b[2K");
+    io::stdout().flush().unwrap();
 }
