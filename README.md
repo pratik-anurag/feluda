@@ -30,19 +30,12 @@ _If your fav language or framework isn't supported, feel free to open an feature
 - [Rust](https://www.rust-lang.org/tools/install) installed on your system.
 
 If you already had it, make sure it's up-to-date and update if needed.
+(Optional) Set rust path if not set already.
 
-### Clone and Build
+### Install
 
 ```sh
-# Clone the repository
-git clone https://github.com/anistark/feluda.git
-cd feluda
-
-# Build the project
-cargo build --release
-
-# Add Feluda to your PATH (optional)
-export PATH="$PWD/target/release:$PATH"
+cargo install feluda
 ```
 
 ## Usage
