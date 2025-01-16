@@ -131,7 +131,10 @@ pub fn analyze_go_licenses(go_mod_path: &str) -> Vec<LicenseInfo> {
                 let version = parts[1].to_string();
                 let license = Some(fetch_license_for_go_dependency(&name, &version));
                 // println!("{}: {}", name, license.as_ref().unwrap());
-                let is_restrictive = false;
+                let is_restrictive = match &license {
+                    Some(license) if license.contains("GPL") || license.contains("AGPL") => true,
+                    _ => false,
+                };
 
                 licenses.push(LicenseInfo {
                     name,
