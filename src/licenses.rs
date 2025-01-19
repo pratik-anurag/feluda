@@ -5,6 +5,7 @@ use std::process::Command;
 use std::fs::File;
 use std::io::{self, BufRead};
 use scraper::{Html, Selector};
+use std::collections::HashSet;
 
 #[derive(Serialize, Debug)]
 pub struct LicenseInfo {
@@ -40,13 +41,14 @@ impl LicenseInfo {
 }
 
 pub fn analyze_rust_licenses(packages: Vec<Package>) -> Vec<LicenseInfo> {
+    if packages.is_empty() {
+        return vec![];
+    }
+
     packages
         .into_iter()
         .map(|package| {
-            let is_restrictive = match &package.license {
-                Some(license) if license.contains("GPL") || license.contains("AGPL") => true,
-                _ => false,
-            };
+            let is_restrictive = is_license_restrictive(&package.license);
 
             LicenseInfo {
                 name: package.name,
@@ -90,7 +92,7 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
                     .find(|line| line.starts_with("license ="))
                     .map(|line| line.replace("license =", "").replace("\'", "").trim().to_string())
                     .unwrap_or_else(|| "No License".to_string());
-                let is_restrictive = license.contains("GPL") || license.contains("AGPL");
+                let is_restrictive = is_license_restrictive(&Some(license.clone()));
 
                 licenses.push(LicenseInfo {
                     name: name.clone(),
@@ -131,10 +133,7 @@ pub fn analyze_go_licenses(go_mod_path: &str) -> Vec<LicenseInfo> {
                 let version = parts[1].to_string();
                 let license = Some(fetch_license_for_go_dependency(&name, &version));
                 // println!("{}: {}", name, license.as_ref().unwrap());
-                let is_restrictive = match &license {
-                    Some(license) if license.contains("GPL") || license.contains("AGPL") => true,
-                    _ => false,
-                };
+                let is_restrictive = is_license_restrictive(&license);
 
                 licenses.push(LicenseInfo {
                     name,
@@ -185,4 +184,92 @@ fn extract_license_from_html(html: &str) -> Option<String> {
         }
     }
     None
+}
+
+fn is_license_restrictive(license: &Option<String>) -> bool {
+    let restrictive_licenses: HashSet<&str> = [
+        "GPL-3.0", "GPL-2.0", "AGPL-3.0", "LGPL-3.0", "LGPL-2.1", 
+        "CC-BY-NC", "CC-BY-NC-SA", "Elastic-License", "SSPL-1.0", 
+        "Oracle-Binary-Code-License", "ODbL-1.0", "AFL-3.0", "Ms-LPL", "Ms-LRL"
+    ]
+    .iter()
+    .cloned()
+    .collect();
+
+    match license {
+        Some(license) => restrictive_licenses.contains(license.as_str()),
+        None => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mockall::mock;
+    use mockall::predicate::*;
+    use reqwest;
+    use super::*;
+
+    #[test]
+    fn test_extract_license_from_html() {
+        let html_content = r#"
+            <html>
+                <body>
+                    <span class="go-Main-headerDetailItem" data-test-id="UnitHeader-licenses">
+                        <a data-test-id="UnitHeader-license">MIT</a>
+                    </span>
+                </body>
+            </html>
+        "#;
+        let license = extract_license_from_html(html_content);
+        assert_eq!(license, Some("MIT".to_string()));
+    }
+
+    #[test]
+    fn test_extract_license_from_html_no_license() {
+        let html_content = r#"
+            <html>
+                <body>
+                    <span class="go-Main-headerDetailItem" data-test-id="UnitHeader-licenses">
+                    </span>
+                </body>
+            </html>
+        "#;
+        let license = extract_license_from_html(html_content);
+        assert_eq!(license, None);
+    }
+
+    pub trait HttpClient {
+        fn get(&self, url: &str) -> Result<reqwest::blocking::Response, reqwest::Error>;
+    }
+
+    mock! {
+        pub HttpClient {
+            fn get(&self, url: &str) -> Result<reqwest::blocking::Response, reqwest::Error>;
+        }
+    }
+
+    impl HttpClient for MockHttpClient {
+        fn get(&self, url: &str) -> Result<reqwest::blocking::Response, reqwest::Error> {
+            self.get(url)
+        }
+    }
+
+    #[test]
+    fn test_fetch_license_for_go_dependency() {
+        let mut mock_http_client = MockHttpClient::new();
+
+        mock_http_client.expect_get()
+            .with(eq("https://pkg.go.dev/github.com/stretchr/testify"))
+            .returning(|_| {
+                let response = reqwest::blocking::Client::new()
+                    .get("https://pkg.go.dev/github.com/stretchr/testify")
+                    .send()
+                    .unwrap();
+                Ok(response)
+            });
+
+        let license = fetch_license_for_go_dependency("github.com/stretchr/testify", "v1.7.0");
+        assert_eq!(license, "MIT");
+    }
+
 }
