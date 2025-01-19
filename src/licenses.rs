@@ -45,6 +45,10 @@ pub fn analyze_rust_licenses(packages: Vec<Package>) -> Vec<LicenseInfo> {
         return vec![];
     }
 
+    if packages.is_empty() {
+        return vec![];
+    }
+
     packages
         .into_iter()
         .map(|package| {
