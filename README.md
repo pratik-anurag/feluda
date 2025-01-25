@@ -25,6 +25,12 @@ _If your fav language or framework isn't supported, feel free to open an feature
 
 ## Installation
 
+### Official Distribution 🎉:
+
+<details>
+<summary>Rust</summary>
+  
+
 ### Prerequisites
 
 - [Rust](https://www.rust-lang.org/tools/install) installed on your system.
@@ -38,13 +44,20 @@ If you already had it, make sure it's up-to-date and update if needed.
 cargo install feluda
 ```
 
-### Install on NetBSD
+</details>
+
+### Community Maintained 🙌:
+
+<details>
+<summary>NetBSD (maintained by @0323pin)</summary>
 
 On NetBSD a package is available from the [official repositories](https://pkgsrc.se/devel/feluda/). To install it, simply run:
 
 ```sh
 pkgin install feluda
 ```
+
+</details>
 
 ## Usage
 
