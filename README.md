@@ -9,6 +9,8 @@
 
 ![ss-1](https://github.com/user-attachments/assets/bda9fb10-3e6b-4881-b852-58ab33341dcd)
 
+> 👋 It's still highly experimental, but fast iterating. Welcoming contributors and support to help bring out this project even better!
+
 ## Features
 
 - Parse your project to identify dependencies and their licenses.
