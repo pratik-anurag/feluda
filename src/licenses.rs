@@ -12,7 +12,7 @@ use std::process::Command;
 #[derive(Debug, Deserialize, Serialize)]
 struct License {
     title: String,            // The full name of the license
-    spdx_id: String,          // A list of permissions granted by the license
+    spdx_id: String,          // The SPDX identifier for the license
     permissions: Vec<String>, // A list of permissions granted by the license
     conditions: Vec<String>,  // A list of conditions that must be met under the license
     limitations: Vec<String>, // A list of limitations imposed by the license
