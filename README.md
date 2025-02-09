@@ -53,7 +53,7 @@ cargo install feluda
 ### Community Maintained 🙌:
 
 <details>
-<summary>Arch Linux (maintained by @adamperkowski)</summary>
+<summary>Arch Linux (maintained by <a href="https://github.com/adamperkowski" rel="noopener noreferrer">@adamperkowski</a>)</summary>
 
 [feluda](https://aur.archlinux.org/packages/feluda) is available in the [AUR](https://aur.archlinux.org/).
 You can install it using an AUR helper (e.g. paru):
@@ -65,7 +65,7 @@ paru -S feluda
 </details>
 
 <details>
-<summary>NetBSD (maintained by @0323pin)</summary>
+<summary>NetBSD (maintained by <a href="https://github.com/0323pin" rel="noopener noreferrer">@0323pin</a>)</summary>
 
 On NetBSD a package is available from the [official repositories](https://pkgsrc.se/devel/feluda/). To install it, simply run:
 
