@@ -75,6 +75,8 @@ pkgin install feluda
 
 </details>
 
+Track releases on [github releases](https://github.com/anistark/feluda/releases) or [via release feed](https://github.com/anistark/feluda/releases.atom).
+
 ## Usage
 
 ### Basic Usage
