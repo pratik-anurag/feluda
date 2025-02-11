@@ -77,6 +77,34 @@ pkgin install feluda
 
 Track releases on [github releases](https://github.com/anistark/feluda/releases) or [via release feed](https://github.com/anistark/feluda/releases.atom).
 
+<details>
+<summary>Build from Source (advanced users)</summary>
+
+**Note:** This might have experimental features which might not work as intended.
+
+### Clone and Build
+
+First, clone the repository:
+
+```sh
+git clone https://github.com/anistark/feluda.git
+cd feluda
+```
+
+Then, build the project using Cargo:
+
+```sh
+cargo build --release
+```
+
+Finally, to make `feluda` available globally, move the binary to a directory in your PATH. For example:
+
+```sh
+sudo mv target/release/feluda /usr/local/bin/
+```
+
+</details>
+
 ## Usage
 
 ### Basic Usage
