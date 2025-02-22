@@ -1,5 +1,7 @@
 # Feluda
 
+![felu](https://github.com/user-attachments/assets/82640681-0b64-4100-a847-754d4a7d1d87)
+
 [![Crates.io Version](https://img.shields.io/crates/v/feluda)
 ](https://crates.io/crates/feluda) ![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
 
