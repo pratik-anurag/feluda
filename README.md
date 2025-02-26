@@ -1,11 +1,9 @@
+![feluda-cover](https://github.com/user-attachments/assets/152e73fd-8040-4ba6-a61d-a7e28f1962db)
+
 # Feluda
 
-![felu](https://github.com/user-attachments/assets/82640681-0b64-4100-a847-754d4a7d1d87)
-
 [![Crates.io Version](https://img.shields.io/crates/v/feluda)
-](https://crates.io/crates/feluda) ![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
-
-![Crates.io Downloads (latest version)](https://img.shields.io/crates/dv/feluda)
+](https://crates.io/crates/feluda) ![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg) ![Crates.io Downloads (latest version)](https://img.shields.io/crates/dv/feluda)
 
 🔎 **Feluda** is a Rust-based command-line tool that analyzes the dependencies of a project, notes down their licenses, and flags any permissions that restrict personal or commercial usage.
 
@@ -258,3 +256,5 @@ The environment variables take precedence over both the configuration file and d
 Feluda is licensed under the [MIT License](./LICENSE).
 
 _Happy coding with Feluda!_ 🚀
+
+![felu](https://github.com/user-attachments/assets/82640681-0b64-4100-a847-754d4a7d1d87)
