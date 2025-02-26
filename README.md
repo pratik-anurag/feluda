@@ -43,6 +43,8 @@ _If your fav language or framework isn't supported, feel free to open an feature
 <details>
 <summary>Rust (Crate)</summary>
 
+![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white)
+
 ### Prerequisites
 
 - [Rust](https://www.rust-lang.org/tools/install) installed on your system.
@@ -59,8 +61,11 @@ cargo install feluda
 </details>
 
 ### Community Maintained 🙌:
+
 <details>
 <summary>Homebrew (maintained by <a href="https://github.com/chenrui333" rel="noopener noreferrer">@chenrui333</a>)</summary>
+
+![macOS](https://img.shields.io/badge/mac%20os-000000?style=for-the-badge&logo=macos&logoColor=F0F0F0) 
 
 [feluda](https://formulae.brew.sh/formula/feluda) is available in the [Homebrew](https://formulae.brew.sh/).
 You can install it using brew:
@@ -74,6 +79,8 @@ brew install feluda
 <details>
 <summary>Arch Linux (maintained by <a href="https://github.com/adamperkowski" rel="noopener noreferrer">@adamperkowski</a>)</summary>
 
+![Arch](https://img.shields.io/badge/Arch%20Linux-1793D1?logo=arch-linux&logoColor=fff&style=for-the-badge)
+
 [feluda](https://aur.archlinux.org/packages/feluda) is available in the [AUR](https://aur.archlinux.org/).
 You can install it using an AUR helper (e.g. paru):
 
@@ -85,6 +92,8 @@ paru -S feluda
 
 <details>
 <summary>NetBSD (maintained by <a href="https://github.com/0323pin" rel="noopener noreferrer">@0323pin</a>)</summary>
+
+![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black) 
 
 On NetBSD a package is available from the [official repositories](https://pkgsrc.se/devel/feluda/). To install it, simply run:
 
