@@ -41,8 +41,7 @@ _If your fav language or framework isn't supported, feel free to open an feature
 ### Official Distribution 🎉:
 
 <details>
-<summary>Rust</summary>
-  
+<summary>Rust (Crate)</summary>
 
 ### Prerequisites
 
@@ -60,6 +59,17 @@ cargo install feluda
 </details>
 
 ### Community Maintained 🙌:
+<details>
+<summary>Homebrew (maintained by <a href="https://github.com/chenrui333" rel="noopener noreferrer">@chenrui333</a>)</summary>
+
+[feluda](https://formulae.brew.sh/formula/feluda) is available in the [Homebrew](https://formulae.brew.sh/).
+You can install it using brew:
+
+```sh
+brew install feluda
+```
+
+</details>
 
 <details>
 <summary>Arch Linux (maintained by <a href="https://github.com/adamperkowski" rel="noopener noreferrer">@adamperkowski</a>)</summary>
