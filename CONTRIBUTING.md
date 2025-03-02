@@ -1,5 +1,7 @@
 Welcoming contributions from the community! 
 
+[![Made with Rust](https://img.shields.io/badge/Made%20with-Rust-orange?logo=rust)](https://www.rust-lang.org/)
+
 ### Folder Structure:
 
 ```sh

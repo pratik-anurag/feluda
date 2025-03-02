@@ -3,7 +3,7 @@
 # Feluda
 
 [![Crates.io Version](https://img.shields.io/crates/v/feluda)
-](https://crates.io/crates/feluda) ![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg) ![Crates.io Downloads (latest version)](https://img.shields.io/crates/dv/feluda)
+](https://crates.io/crates/feluda) [![Crates.io Downloads](https://img.shields.io/crates/d/feluda)](https://crates.io/crates/feluda) [![Crates.io Downloads (latest version)](https://img.shields.io/crates/dv/feluda)](https://crates.io/crates/feluda) [![Open Source](https://img.shields.io/badge/open-source-brightgreen)](https://github.com/anistark/feluda) [![Contributors](https://img.shields.io/github/contributors/anistark/feluda)](https://github.com/anistark/feluda/graphs/contributors) ![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
 
 🔎 **Feluda** is a Rust-based command-line tool that analyzes the dependencies of a project, notes down their licenses, and flags any permissions that restrict personal or commercial usage.
 
@@ -145,6 +145,11 @@ feluda
 
 ```sh
 feluda --path /path/to/project/
+```
+
+_If you're using Feluda, feel free to grab a Scanned with Feluda badge for your project:_ [![Scanned with Feluda](https://img.shields.io/badge/Scanned%20with-Feluda-red)](https://github.com/anistark/feluda)
+```
+[![Scanned with Feluda](https://img.shields.io/badge/Scanned%20with-Feluda-red)](https://github.com/anistark/feluda)
 ```
 
 ### Output Format
