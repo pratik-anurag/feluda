@@ -706,16 +706,17 @@ restrictive = ["TOML-1.0", "TOML-2.0"]"#,
     fn test_analyze_python_licenses_pyproject_toml() {
         let temp_dir = setup();
         let pyproject_toml_path = temp_dir.path().join("pyproject.toml");
+
         fs::write(
             &pyproject_toml_path,
             r#"[project]
-name = "test-project"
-version = "0.1.0"
-
-[project.dependencies]
-requests = "^2.31.0"
-flask = "~2.0.0"
-"#,
+    name = "test-project"
+    version = "0.1.0"
+    dependencies = [
+        "requests>=2.31.0",
+        "flask~=2.0.0"
+    ]
+    "#,
         )
         .unwrap();
 

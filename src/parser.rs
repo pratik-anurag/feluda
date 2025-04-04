@@ -293,9 +293,17 @@ require (github.com/mixed-case/Module v3.5.7-beta)"#;
     fn test_parse_dependencies_python() {
         let temp_dir = tempfile::tempdir().unwrap();
         let pyproject_toml_path = temp_dir.path().join("pyproject.toml");
+
         fs::write(
             &pyproject_toml_path,
-            "[project]\nname = \"test\"\nversion = \"0.1.0\"\n\n[project.dependencies]\nrequests = \"^2.31.0\"",
+            r#"[project]
+    name = "test"
+    version = "0.1.0"
+    dependencies = [
+        "requests>=2.31.0",
+        "rich>=13.7.0"
+    ]
+    "#,
         )
         .unwrap();
 
@@ -303,6 +311,7 @@ require (github.com/mixed-case/Module v3.5.7-beta)"#;
             path: temp_dir.path().to_path_buf(),
             project_type: Language::Python(&PYTHON_PATHS),
         });
+
         assert!(!result.is_empty());
     }
 }
