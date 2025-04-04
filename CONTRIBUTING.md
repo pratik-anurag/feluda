@@ -140,3 +140,7 @@ just clean
 ```sh
 just login
 ```
+
+### Debug Mode
+
+You can now add `cli::DEBUG_MODE.load(Ordering::Relaxed)` wherever you need to add debug logs.

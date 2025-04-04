@@ -10,10 +10,12 @@ use std::fs;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::process::Command;
+use std::sync::atomic::Ordering;
 use std::thread::sleep;
 use std::time::Duration;
 use toml::Value as TomlValue;
 
+use crate::cli;
 use crate::config;
 
 // This is used to deserialize the license files from the choosealicense.com repository
@@ -114,22 +116,56 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
             if let Some(deps) = project
                 .as_table()
                 .and_then(|t| t.get("dependencies"))
-                .and_then(|d| d.as_table())
+                .and_then(|d| d.as_array())
             {
-                for (name, version_value) in deps.iter() {
-                    let version = match version_value.as_str() {
-                        Some(v) => v.trim_matches('"').replace("^", "").replace("~", ""),
-                        None => "latest".to_string(),
-                    };
-                    let license = Some(fetch_license_for_python_dependency(name, &version));
-                    let is_restrictive = is_license_restrictive(&license, &known_licenses);
+                if cli::DEBUG_MODE.load(Ordering::Relaxed) {
+                    println!("\nDependencies: {:?}", deps);
+                }
+                for dep in deps {
+                    if let Some(dep_str) = dep.as_str() {
+                        if cli::DEBUG_MODE.load(Ordering::Relaxed) {
+                            println!(">>> {:?}", dep_str);
+                        }
 
-                    licenses.push(LicenseInfo {
-                        name: name.to_string(),
-                        version,
-                        license,
-                        is_restrictive,
-                    });
+                        // Split on typical comparison operators (>=, ==, etc.)
+                        let (name, version) = if let Some((n, v)) = dep_str
+                            .split_once("==")
+                            .or_else(|| dep_str.split_once(">="))
+                            .or_else(|| dep_str.split_once(">"))
+                            .or_else(|| dep_str.split_once("~="))
+                            .or_else(|| dep_str.split_once("<="))
+                            .or_else(|| dep_str.split_once("<"))
+                        {
+                            (n.trim(), v.trim())
+                        } else {
+                            (dep_str.trim(), "latest")
+                        };
+
+                        let version_clean =
+                            version.trim_matches('"').replace("^", "").replace("~", "");
+
+                        let license =
+                            Some(fetch_license_for_python_dependency(name, &version_clean));
+                        let is_restrictive = is_license_restrictive(&license, &known_licenses);
+
+                        if cli::DEBUG_MODE.load(Ordering::Relaxed) {
+                            println!(
+                                "Dependency: {} Version: {} License: {:?} Restrictive: {}",
+                                name, version_clean, license, is_restrictive
+                            );
+                        }
+
+                        licenses.push(LicenseInfo {
+                            name: name.to_string(),
+                            version: version_clean,
+                            license,
+                            is_restrictive,
+                        });
+                    }
+                }
+            } else {
+                if cli::DEBUG_MODE.load(Ordering::Relaxed) {
+                    println!("\nFailed to find dependencies in pyproject.toml");
                 }
             }
         }

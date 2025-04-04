@@ -2,6 +2,7 @@ use crate::cli;
 use cargo_metadata::MetadataCommand;
 use ignore::Walk;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 
 use crate::licenses::{
     analyze_go_licenses, analyze_js_licenses, analyze_python_licenses, analyze_rust_licenses,
@@ -144,6 +145,9 @@ fn parse_dependencies(root: &ProjectRoot) -> Vec<LicenseInfo> {
                 let python_package_file = check_which_python_file_exists(project_path)
                     .expect("Python package file not found");
                 let project_path = Path::new(project_path).join(python_package_file);
+                if cli::DEBUG_MODE.load(Ordering::Relaxed) {
+                    println!("Processing Python project at: {}", project_path.display());
+                }
                 analyze_python_licenses(
                     project_path
                         .to_str()
