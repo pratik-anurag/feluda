@@ -101,6 +101,8 @@ pkgin install feluda
 
 </details>
 
+[![Packaging status](https://repology.org/badge/vertical-allrepos/feluda.svg)](https://repology.org/project/feluda/versions)
+
 Track releases on [github releases](https://github.com/anistark/feluda/releases) or [via release feed](https://github.com/anistark/feluda/releases.atom).
 
 <details>
