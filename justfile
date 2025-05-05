@@ -4,7 +4,7 @@ VERSION := `cargo pkgid | cut -d# -f2 | cut -d: -f2`
 GITHUB_REPO := "anistark/feluda"
 
 # Build the crate
-build:
+build: format lint test
     @echo "🚀 Building release version..."
     cargo build --release
 
@@ -38,10 +38,7 @@ debian-release:
     dput ppa:your-ppa-name ../{{CRATE_NAME}}_{{VERSION}}_source.changes
 
 # Publish the crate to crates.io
-publish:
-    just build
-    just test-release
-    just package
+publish: build test-release package
     cargo publish
     just gh-release
 

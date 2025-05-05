@@ -1,7 +1,78 @@
 use crate::cli::CiFormat;
 use crate::licenses::LicenseInfo;
+use colored::*;
 use std::collections::HashMap;
 use std::fs;
+
+struct TableFormatter {
+    column_widths: Vec<usize>,
+    headers: Vec<String>,
+}
+
+impl TableFormatter {
+    fn new(headers: Vec<String>) -> Self {
+        let column_widths = headers.iter().map(|h| h.len()).collect();
+        Self {
+            column_widths,
+            headers,
+        }
+    }
+
+    fn add_row(&mut self, row: &[String]) {
+        for (i, item) in row.iter().enumerate() {
+            if i < self.column_widths.len() {
+                self.column_widths[i] = self.column_widths[i].max(item.len());
+            }
+        }
+    }
+
+    fn render_header(&self) -> String {
+        let header_row = self
+            .headers
+            .iter()
+            .enumerate()
+            .map(|(i, header)| format!("{:width$}", header, width = self.column_widths[i]))
+            .collect::<Vec<_>>()
+            .join(" │ ");
+
+        let total_width =
+            self.column_widths.iter().sum::<usize>() + (3 * self.column_widths.len()) - 1;
+
+        format!(
+            "┌{}┐\n│ {} │\n├{}┤",
+            "─".repeat(total_width),
+            header_row.bold().blue(),
+            "─".repeat(total_width)
+        )
+    }
+
+    fn render_row(&self, row: &[String], is_restrictive: bool) -> String {
+        let formatted_row = row
+            .iter()
+            .enumerate()
+            .map(|(i, item)| {
+                if i < self.column_widths.len() {
+                    format!("{:width$}", item, width = self.column_widths[i])
+                } else {
+                    item.clone()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" │ ");
+
+        if is_restrictive {
+            format!("│ {} │", formatted_row.red().bold())
+        } else {
+            format!("│ {} │", formatted_row.green())
+        }
+    }
+
+    fn render_footer(&self) -> String {
+        let footer_width =
+            self.column_widths.iter().sum::<usize>() + (3 * self.column_widths.len()) - 1;
+        format!("└{}┘", "─".repeat(footer_width))
+    }
+}
 
 pub fn generate_report(
     data: Vec<LicenseInfo>,
@@ -24,84 +95,223 @@ pub fn generate_report(
 
     if filtered_data.is_empty() {
         println!(
-            "\n🎉 All dependencies passed the license check! No restrictive licenses found.\n"
+            "\n{}\n",
+            "🎉 All dependencies passed the license check! No restrictive licenses found."
+                .green()
+                .bold()
         );
         return false;
     }
 
-    // Handle CI output format if specified
     if let Some(format) = ci_format {
         match format {
             CiFormat::Github => output_github_format(&filtered_data, output_file.as_deref()),
             CiFormat::Jenkins => output_jenkins_format(&filtered_data, output_file.as_deref()),
         }
     } else if json {
-        // Existing JSON output
+        // JSON output
         let json_output =
             serde_json::to_string_pretty(&filtered_data).expect("Failed to serialize data");
         println!("{}", json_output);
     } else {
-        // Existing plain text output
-        let mut restrictive_licenses: Vec<LicenseInfo> = Vec::new();
-        let mut license_count: HashMap<Option<String>, usize> = HashMap::new();
-        for info in filtered_data {
-            if verbose {
-                println!(
-                    "Name: {}, Version: {}, License: {:?}, Restrictive: {}",
-                    info.name,
-                    info.version,
-                    info.get_license(),
-                    info.is_restrictive
-                );
-            }
-
-            if *info.is_restrictive() {
-                // Add to a separate array or handle as needed
-                restrictive_licenses.push(info);
-            } else {
-                *license_count.entry(info.license.clone()).or_insert(0) += 1;
-            }
-        }
-
-        println!("{:<49} {:<5}", "License Type", "Dependencies");
-        println!("{:<53} {:<5}", "---------------------", "------------");
-        for (license, count) in license_count {
-            println!(
-                "{:<58} {:<5}",
-                license.unwrap_or_else(|| "Unknown".to_string()),
-                count
-            );
-        }
-        println!("\nTotal dependencies scanned: {}", total_packages);
-        if restrictive_licenses.is_empty() {
-            println!("\n✅ No restrictive licenses found! 🎉\n");
+        if verbose {
+            print_verbose_table(&filtered_data, strict);
         } else {
-            println!("\n⚠️ Warning: Restrictive licenses may have been found! ⚠️");
-            println!("\n{:<50} {:<5}", "Restrictive License Type", "Dependencies");
-            println!("{:<50} {:<5}", "---------------------", "------------");
-            for info in restrictive_licenses {
-                println!(
-                    "{:<50} {:<5}",
-                    info.license.unwrap_or_else(|| "Unknown".to_string()),
-                    info.name
-                );
-            }
+            print_summary_table(&filtered_data, total_packages, strict);
         }
     }
 
     has_restrictive
 }
 
+fn print_verbose_table(license_info: &[LicenseInfo], strict: bool) {
+    let headers = vec![
+        "Name".to_string(),
+        "Version".to_string(),
+        "License".to_string(),
+        "Restrictive".to_string(),
+    ];
+
+    let mut formatter = TableFormatter::new(headers);
+
+    let rows: Vec<_> = license_info
+        .iter()
+        .map(|info| {
+            vec![
+                info.name().to_string(),
+                info.version().to_string(),
+                info.get_license(),
+                info.is_restrictive().to_string(),
+            ]
+        })
+        .collect();
+
+    for row in &rows {
+        formatter.add_row(row);
+    }
+
+    println!("\n{}", formatter.render_header());
+
+    for (i, row) in rows.iter().enumerate() {
+        let is_restrictive = *license_info[i].is_restrictive();
+        println!("{}", formatter.render_row(row, is_restrictive));
+    }
+
+    println!("{}\n", formatter.render_footer());
+
+    if !strict {
+        print_summary_footer(license_info);
+    }
+}
+
+fn print_summary_table(license_info: &[LicenseInfo], total_packages: usize, strict: bool) {
+    if strict {
+        print_restrictive_licenses_table(&license_info.iter().collect::<Vec<_>>());
+        return;
+    }
+
+    let mut license_count: HashMap<String, Vec<String>> = HashMap::new();
+    let mut restrictive_licenses: Vec<&LicenseInfo> = Vec::new();
+
+    for info in license_info {
+        let license = info.get_license();
+
+        if *info.is_restrictive() {
+            restrictive_licenses.push(info);
+        } else {
+            license_count
+                .entry(license)
+                .or_default()
+                .push(info.name().to_string());
+        }
+    }
+
+    // License summary
+    let headers = vec!["License Type".to_string(), "Count".to_string()];
+
+    let mut formatter = TableFormatter::new(headers);
+
+    let mut rows: Vec<Vec<String>> = license_count
+        .iter()
+        .map(|(license, deps)| vec![license.clone(), deps.len().to_string()])
+        .collect();
+
+    for row in &rows {
+        formatter.add_row(row);
+    }
+
+    println!(
+        "\n{} {}\n",
+        "🔍".bold(),
+        "License Summary".bold().underline()
+    );
+
+    println!("{}", formatter.render_header());
+
+    rows.sort_by(|a, b| a[0].cmp(&b[0]));
+
+    for row in &rows {
+        println!("{}", formatter.render_row(row, false));
+    }
+
+    println!("{}", formatter.render_footer());
+
+    println!(
+        "\n{} {}",
+        "📦".bold(),
+        format!("Total dependencies scanned: {}", total_packages).bold()
+    );
+
+    if !restrictive_licenses.is_empty() {
+        print_restrictive_licenses_table(&restrictive_licenses);
+    } else {
+        println!(
+            "\n{}\n",
+            "✅ No restrictive licenses found! 🎉".green().bold()
+        );
+    }
+}
+
+fn print_restrictive_licenses_table(restrictive_licenses: &[&LicenseInfo]) {
+    println!(
+        "\n{} {}\n",
+        "⚠️".bold(),
+        "Warning: Restrictive licenses found!".red().bold()
+    );
+
+    let headers = vec![
+        "Package".to_string(),
+        "Version".to_string(),
+        "License".to_string(),
+    ];
+
+    let mut formatter = TableFormatter::new(headers);
+
+    let rows: Vec<_> = restrictive_licenses
+        .iter()
+        .map(|info| {
+            vec![
+                info.name().to_string(),
+                info.version().to_string(),
+                info.get_license(),
+            ]
+        })
+        .collect();
+
+    for row in &rows {
+        formatter.add_row(row);
+    }
+
+    println!("{}", formatter.render_header());
+
+    for row in &rows {
+        println!("{}", formatter.render_row(row, true));
+    }
+
+    println!("{}\n", formatter.render_footer());
+}
+
+fn print_summary_footer(license_info: &[LicenseInfo]) {
+    let total = license_info.len();
+    let restrictive_count = license_info.iter().filter(|i| *i.is_restrictive()).count();
+    let permissive_count = total - restrictive_count;
+
+    println!("{}", "🔍 License Summary:".bold());
+    println!(
+        "  • {} {}",
+        permissive_count.to_string().green().bold(),
+        "permissive licenses".green()
+    );
+    println!(
+        "  • {} {}",
+        restrictive_count.to_string().red().bold(),
+        "restrictive licenses".red()
+    );
+    println!("  • {} total dependencies", total);
+
+    if restrictive_count > 0 {
+        println!("\n{} {}: Review these dependencies for compliance with your project's licensing requirements.",
+            "⚠️".yellow().bold(),
+            "Recommendation".yellow().bold()
+        );
+    } else {
+        println!(
+            "\n{} {}: All dependencies have permissive licenses compatible with most projects.",
+            "✅".green().bold(),
+            "Status".green().bold()
+        );
+    }
+
+    println!();
+}
+
 fn output_github_format(license_info: &[LicenseInfo], output_path: Option<&str>) {
-    // Create GitHub Actions compatible output
+    // GitHub Actions compatible output
     let mut output = String::new();
 
     // GitHub Actions workflow commands format
-    // https://docs.github.com/en/actions/reference/workflow-commands-for-github-actions
-
     for info in license_info {
         if *info.is_restrictive() {
-            // Format: ::warning title={title}::{message}
             output.push_str(&format!(
                 "::warning title=Restrictive License::Dependency '{}@{}' has restrictive license: {}\n",
                 info.name(),
@@ -111,7 +321,6 @@ fn output_github_format(license_info: &[LicenseInfo], output_path: Option<&str>)
         }
     }
 
-    // Append summary using notice
     let restrictive_count = license_info.iter().filter(|i| *i.is_restrictive()).count();
     output.push_str(&format!(
         "::notice title=License Check Summary::Found {} dependencies with restrictive licenses out of {} total\n",
@@ -129,7 +338,7 @@ fn output_github_format(license_info: &[LicenseInfo], output_path: Option<&str>)
 }
 
 fn output_jenkins_format(license_info: &[LicenseInfo], output_path: Option<&str>) {
-    // Create Jenkins compatible output (JUnit XML format)
+    // Jenkins compatible output (JUnit XML format)
     let mut test_cases = Vec::new();
 
     for info in license_info {
@@ -208,7 +417,6 @@ mod tests {
         let data = vec![];
         let result = generate_report(data, false, false, false, None, None);
         assert_eq!(result, false);
-        // Expected output: 🎉 All dependencies passed the license check! No restrictive licenses found.
     }
 
     #[test]

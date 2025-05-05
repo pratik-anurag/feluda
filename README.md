@@ -210,7 +210,6 @@ feluda --gui
 
 ## CI/CD Integration
 
-CI Integration Options
 Feluda provides several options for CI integration:
 
 - `--ci-format <github|jenkins>`: Generate output compatible with the specified CI system
@@ -251,6 +250,7 @@ jobs:
 
       - name: Check licenses
         run: feluda --ci-format github --fail-on-restrictive
+```
 
 Checkout [contributing guidelines](./CONTRIBUTING.md) if you are looking to contribute to this project.
 
