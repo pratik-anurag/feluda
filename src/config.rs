@@ -28,12 +28,14 @@
 //! export FELUDA_LICENSES_RESTRICTIVE='["GPL-3.0","AGPL-3.0"]'
 //! ```
 
-use color_eyre::Result;
 use figment::{
     providers::{Env, Format, Serialized, Toml},
     Figment,
 };
 use serde::{Deserialize, Serialize};
+use std::path::Path;
+
+use crate::debug::{log, log_debug, log_error, FeludaError, FeludaResult, LogLevel};
 
 /// Main configuration structure for Feluda
 #[derive(Debug, Deserialize, Serialize, Default)]
@@ -70,7 +72,7 @@ impl Default for LicenseConfig {
 
 /// Returns the default list of restrictive licenses
 fn default_restrictive_licenses() -> Vec<String> {
-    vec![
+    let licenses = vec![
         "GPL-3.0",
         "AGPL-3.0",
         "LGPL-3.0",
@@ -81,7 +83,10 @@ fn default_restrictive_licenses() -> Vec<String> {
     ]
     .into_iter()
     .map(String::from)
-    .collect()
+    .collect();
+
+    log_debug("Default restrictive licenses", &licenses);
+    licenses
 }
 
 /// Loads the configuration using the following providers (in order of precedence):
@@ -99,17 +104,50 @@ fn default_restrictive_licenses() -> Vec<String> {
 ///
 /// For example:
 /// - `FELUDA_LICENSES_RESTRICTIVE` -> `licenses.restrictive`
-pub fn load_config() -> Result<FeludaConfig> {
-    let config = Figment::new()
-        // Start with default values
-        .merge(Serialized::defaults(FeludaConfig::default()))
-        // Add TOML file if it exists
-        .merge(Toml::file(".feluda.toml"))
-        // Add environment variables with proper transformation
-        .merge(Env::prefixed("FELUDA_").split("_"));
+pub fn load_config() -> FeludaResult<FeludaConfig> {
+    log(LogLevel::Info, "Loading Feluda configuration");
 
-    Ok(config.extract()?)
+    // Start with default values
+    let mut figment = Figment::new().merge(Serialized::defaults(FeludaConfig::default()));
+
+    // Check if .feluda.toml exists and add it if it does
+    let config_path = Path::new(".feluda.toml");
+    if config_path.exists() {
+        log(
+            LogLevel::Info,
+            &format!("Found configuration file: {}", config_path.display()),
+        );
+        figment = figment.merge(Toml::file(config_path));
+    } else {
+        log(LogLevel::Info, "No .feluda.toml file found, using defaults");
+    }
+
+    // Add environment variables
+    figment = figment.merge(Env::prefixed("FELUDA_").split("_"));
+    log(LogLevel::Info, "Checking for FELUDA_ environment variables");
+
+    // Extract the final configuration
+    match figment.extract() {
+        Ok(config) => {
+            log(LogLevel::Info, "Configuration loaded successfully");
+            log_debug("Loaded configuration", &config);
+            Ok(config)
+        }
+        Err(e) => {
+            log_error("Failed to extract configuration", &e);
+            Err(FeludaError::Config(format!(
+                "Failed to extract configuration: {}",
+                e
+            )))
+        }
+    }
 }
+
+// Remove the unused function
+// Keep it in the tests but commented out for reference
+// pub fn has_env_var(var_name: &str) -> bool {
+//     std::env::var(format!("FELUDA_{}", var_name)).is_ok()
+// }
 
 #[cfg(test)]
 mod tests {
@@ -163,9 +201,11 @@ restrictive = ["TEST-1.0", "TEST-2.0"]"#,
 
     #[test]
     fn test_env_config() {
-        temp_env::with_var(
-            "FELUDA_LICENSES_RESTRICTIVE",
-            Some(r#"["ENV-1.0","ENV-2.0"]"#),
+        temp_env::with_vars(
+            vec![(
+                "FELUDA_LICENSES_RESTRICTIVE",
+                Some(r#"["ENV-1.0","ENV-2.0"]"#),
+            )],
             || {
                 let dir = setup();
                 std::env::set_current_dir(dir.path()).unwrap();
@@ -200,4 +240,15 @@ restrictive = ["TOML-1.0", "TOML-2.0"]"#,
             },
         );
     }
+
+    // Commented out the test that would require has_env_var
+    /*
+    #[test]
+    fn test_has_env_var() {
+        temp_env::with_var("FELUDA_TEST_VAR", Some("value"), || {
+            assert!(has_env_var("TEST_VAR"));
+            assert!(!has_env_var("NONEXISTENT_VAR"));
+        });
+    }
+    */
 }

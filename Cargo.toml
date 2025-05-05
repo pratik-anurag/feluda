@@ -1,6 +1,6 @@
 [package]
 name = "feluda"
-version = "1.6.1"
+version = "1.6.2"
 edition = "2021"
 description = "A CLI tool to check dependency licenses."
 readme = "README.md"
@@ -40,12 +40,19 @@ ignore = "0.4.23"
 toml = "0.8.22"
 regex = "1.11.1"
 thiserror = "2.0.12"
+backtrace = { version = "0.3.74", optional = true }
+tracing = { version = "0.1.40", features = ["attributes"] }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
 [dev-dependencies]
 tempfile = "3.19.1"
 mockall = "0.13.1"
 http = "1.3.1"
 temp-env = "0.3.1"
+
+[features]
+default = []
+advanced-debug = ["backtrace"]
 
 [[bin]]
 name = "feluda"

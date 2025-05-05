@@ -1,4 +1,5 @@
 use crate::cli::CiFormat;
+use crate::debug::{log, log_debug, log_error, LogLevel};
 use crate::licenses::LicenseInfo;
 use colored::*;
 use std::collections::HashMap;
@@ -82,8 +83,26 @@ pub fn generate_report(
     ci_format: Option<CiFormat>,
     output_file: Option<String>,
 ) -> bool {
+    log(
+        LogLevel::Info,
+        &format!(
+            "Generating report with options: json={}, verbose={}, strict={}, ci_format={:?}",
+            json, verbose, strict, ci_format
+        ),
+    );
+
     let total_packages = data.len();
+    log(
+        LogLevel::Info,
+        &format!("Total packages to analyze: {}", total_packages),
+    );
+
+    // Filter data if in strict mode to show only restrictive licenses
     let filtered_data: Vec<LicenseInfo> = if strict {
+        log(
+            LogLevel::Info,
+            "Strict mode enabled, filtering restrictive licenses only",
+        );
         data.into_iter()
             .filter(|info| *info.is_restrictive())
             .collect()
@@ -91,7 +110,17 @@ pub fn generate_report(
         data
     };
 
+    log(
+        LogLevel::Info,
+        &format!("Filtered packages count: {}", filtered_data.len()),
+    );
+    log_debug("Filtered license data", &filtered_data);
+
     let has_restrictive = filtered_data.iter().any(|info| *info.is_restrictive());
+    log(
+        LogLevel::Info,
+        &format!("Has restrictive licenses: {}", has_restrictive),
+    );
 
     if filtered_data.is_empty() {
         println!(
@@ -110,21 +139,29 @@ pub fn generate_report(
         }
     } else if json {
         // JSON output
-        let json_output =
-            serde_json::to_string_pretty(&filtered_data).expect("Failed to serialize data");
-        println!("{}", json_output);
-    } else {
-        if verbose {
-            print_verbose_table(&filtered_data, strict);
-        } else {
-            print_summary_table(&filtered_data, total_packages, strict);
+        log(LogLevel::Info, "Generating JSON output");
+        match serde_json::to_string_pretty(&filtered_data) {
+            Ok(json_output) => println!("{}", json_output),
+            Err(err) => {
+                log_error("Failed to serialize data to JSON", &err);
+                println!("Error: Failed to generate JSON output");
+            }
         }
+    } else if verbose {
+        // Change "else { if verbose {" to "else if verbose {"
+        log(LogLevel::Info, "Generating verbose table");
+        print_verbose_table(&filtered_data, strict);
+    } else {
+        log(LogLevel::Info, "Generating summary table");
+        print_summary_table(&filtered_data, total_packages, strict);
     }
 
     has_restrictive
 }
 
 fn print_verbose_table(license_info: &[LicenseInfo], strict: bool) {
+    log(LogLevel::Info, "Printing verbose table");
+
     let headers = vec![
         "Name".to_string(),
         "Version".to_string(),
@@ -146,6 +183,8 @@ fn print_verbose_table(license_info: &[LicenseInfo], strict: bool) {
         })
         .collect();
 
+    log_debug("Table rows prepared", &rows);
+
     for row in &rows {
         formatter.add_row(row);
     }
@@ -165,7 +204,13 @@ fn print_verbose_table(license_info: &[LicenseInfo], strict: bool) {
 }
 
 fn print_summary_table(license_info: &[LicenseInfo], total_packages: usize, strict: bool) {
+    log(LogLevel::Info, "Printing summary table");
+
     if strict {
+        log(
+            LogLevel::Info,
+            "Strict mode enabled, showing only restrictive licenses",
+        );
         print_restrictive_licenses_table(&license_info.iter().collect::<Vec<_>>());
         return;
     }
@@ -185,6 +230,18 @@ fn print_summary_table(license_info: &[LicenseInfo], total_packages: usize, stri
                 .push(info.name().to_string());
         }
     }
+
+    log(
+        LogLevel::Info,
+        &format!("Found {} permissive license types", license_count.len()),
+    );
+    log(
+        LogLevel::Info,
+        &format!(
+            "Found {} packages with restrictive licenses",
+            restrictive_licenses.len()
+        ),
+    );
 
     // License summary
     let headers = vec!["License Type".to_string(), "Count".to_string()];
@@ -233,6 +290,14 @@ fn print_summary_table(license_info: &[LicenseInfo], total_packages: usize, stri
 }
 
 fn print_restrictive_licenses_table(restrictive_licenses: &[&LicenseInfo]) {
+    log(
+        LogLevel::Info,
+        &format!(
+            "Printing table for {} restrictive licenses",
+            restrictive_licenses.len()
+        ),
+    );
+
     println!(
         "\n{} {}\n",
         "⚠️".bold(),
@@ -272,6 +337,8 @@ fn print_restrictive_licenses_table(restrictive_licenses: &[&LicenseInfo]) {
 }
 
 fn print_summary_footer(license_info: &[LicenseInfo]) {
+    log(LogLevel::Info, "Printing summary footer");
+
     let total = license_info.len();
     let restrictive_count = license_info.iter().filter(|i| *i.is_restrictive()).count();
     let permissive_count = total - restrictive_count;
@@ -306,65 +373,124 @@ fn print_summary_footer(license_info: &[LicenseInfo]) {
 }
 
 fn output_github_format(license_info: &[LicenseInfo], output_path: Option<&str>) {
-    // GitHub Actions compatible output
+    log(
+        LogLevel::Info,
+        "Generating GitHub Actions compatible output",
+    );
+
+    // GitHub Actions workflow commands format
     let mut output = String::new();
 
     // GitHub Actions workflow commands format
     for info in license_info {
         if *info.is_restrictive() {
-            output.push_str(&format!(
+            let warning = format!(
                 "::warning title=Restrictive License::Dependency '{}@{}' has restrictive license: {}\n",
                 info.name(),
                 info.version(),
                 info.get_license()
-            ));
+            );
+            output.push_str(&warning);
+
+            log(
+                LogLevel::Info,
+                &format!("Added warning for: {}", info.name()),
+            );
         }
     }
 
     let restrictive_count = license_info.iter().filter(|i| *i.is_restrictive()).count();
-    output.push_str(&format!(
+    let summary = format!(
         "::notice title=License Check Summary::Found {} dependencies with restrictive licenses out of {} total\n",
         restrictive_count,
         license_info.len()
-    ));
+    );
+    output.push_str(&summary);
+
+    log(
+        LogLevel::Info,
+        &format!(
+            "Added summary: {} restrictive out of {}",
+            restrictive_count,
+            license_info.len()
+        ),
+    );
 
     // Output to file or stdout
     if let Some(path) = output_path {
-        fs::write(path, output).expect("Failed to write GitHub Actions output file");
-        println!("GitHub Actions output written to: {}", path);
+        log(
+            LogLevel::Info,
+            &format!("Writing GitHub Actions output to file: {}", path),
+        );
+
+        match fs::write(path, &output) {
+            Ok(_) => println!("GitHub Actions output written to: {}", path),
+            Err(err) => {
+                log_error(
+                    &format!("Failed to write GitHub Actions output file: {}", path),
+                    &err,
+                );
+                println!("Error: Failed to write GitHub Actions output file");
+                println!("{}", output); // Fallback to stdout
+            }
+        }
     } else {
+        log(LogLevel::Info, "Writing GitHub Actions output to stdout");
         print!("{}", output);
     }
 }
 
 fn output_jenkins_format(license_info: &[LicenseInfo], output_path: Option<&str>) {
+    log(
+        LogLevel::Info,
+        "Generating Jenkins compatible output (JUnit XML)",
+    );
+
     // Jenkins compatible output (JUnit XML format)
     let mut test_cases = Vec::new();
 
     for info in license_info {
+        let test_case_name = format!("{}-{}", info.name(), info.version());
+        log(
+            LogLevel::Info,
+            &format!("Processing test case: {}", test_case_name),
+        );
+
         if *info.is_restrictive() {
             test_cases.push(format!(
-                r#"    <testcase classname="feluda.licenses" name="{}-{}" time="0">
+                r#"    <testcase classname="feluda.licenses" name="{}" time="0">
         <failure message="Restrictive license found" type="restrictive">
             Dependency '{}@{}' has restrictive license: {}
         </failure>
     </testcase>"#,
-                info.name(),
-                info.version(),
+                test_case_name,
                 info.name(),
                 info.version(),
                 info.get_license()
             ));
+
+            log(
+                LogLevel::Info,
+                &format!("Added failing test case for: {}", info.name()),
+            );
         } else {
             test_cases.push(format!(
-                r#"    <testcase classname="feluda.licenses" name="{}-{}" time="0" />"#,
-                info.name(),
-                info.version()
+                r#"    <testcase classname="feluda.licenses" name="{}" time="0" />"#,
+                test_case_name
             ));
         }
     }
 
     let restrictive_count = license_info.iter().filter(|i| *i.is_restrictive()).count();
+    log(
+        LogLevel::Info,
+        &format!(
+            "Total test cases: {}, failures: {}",
+            license_info.len(),
+            restrictive_count
+        ),
+    );
+
     let junit_xml = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <testsuites>
@@ -379,9 +505,24 @@ fn output_jenkins_format(license_info: &[LicenseInfo], output_path: Option<&str>
 
     // Output to file or stdout
     if let Some(path) = output_path {
-        fs::write(path, junit_xml).expect("Failed to write Jenkins JUnit XML output file");
-        println!("Jenkins JUnit XML output written to: {}", path);
+        log(
+            LogLevel::Info,
+            &format!("Writing Jenkins JUnit XML to file: {}", path),
+        );
+
+        match fs::write(path, &junit_xml) {
+            Ok(_) => println!("Jenkins JUnit XML output written to: {}", path),
+            Err(err) => {
+                log_error(
+                    &format!("Failed to write Jenkins output file: {}", path),
+                    &err,
+                );
+                println!("Error: Failed to write Jenkins JUnit XML output file");
+                println!("{}", junit_xml); // Fallback to stdout
+            }
+        }
     } else {
+        log(LogLevel::Info, "Writing Jenkins JUnit XML to stdout");
         println!("{}", junit_xml);
     }
 }
@@ -453,7 +594,7 @@ mod tests {
         let temp_dir = setup();
         let output_path = temp_dir.path().join("github_output.txt");
 
-        let _ = generate_report(
+        let result = generate_report(
             data,
             false,
             false,
@@ -461,8 +602,15 @@ mod tests {
             Some(CiFormat::Github),
             Some(output_path.to_str().unwrap().to_string()),
         );
+        assert!(result);
 
-        let content = fs::read_to_string(output_path).unwrap();
+        let content = match fs::read_to_string(&output_path) {
+            Ok(content) => content,
+            Err(err) => {
+                panic!("Failed to read output file: {}", err);
+            }
+        };
+
         assert!(content.contains("::warning title=Restrictive License::"));
         assert!(content.contains("::notice title=License Check Summary::"));
     }
@@ -473,7 +621,7 @@ mod tests {
         let temp_dir = setup();
         let output_path = temp_dir.path().join("jenkins_output.xml");
 
-        let _ = generate_report(
+        let result = generate_report(
             data,
             false,
             false,
@@ -481,10 +629,40 @@ mod tests {
             Some(CiFormat::Jenkins),
             Some(output_path.to_str().unwrap().to_string()),
         );
+        assert!(result);
 
-        let content = fs::read_to_string(output_path).unwrap();
+        let content = match fs::read_to_string(&output_path) {
+            Ok(content) => content,
+            Err(err) => {
+                panic!("Failed to read output file: {}", err);
+            }
+        };
+
         assert!(content.contains("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
         assert!(content.contains("<testsuites>"));
         assert!(content.contains("<failure message=\"Restrictive license found\""));
+    }
+
+    #[test]
+    fn test_table_formatter() {
+        let headers = vec!["Name".to_string(), "Value".to_string()];
+        let mut formatter = TableFormatter::new(headers);
+
+        let row1 = vec!["key1".to_string(), "value1".to_string()];
+        let row2 = vec!["key2".to_string(), "value2".to_string()];
+
+        formatter.add_row(&row1);
+        formatter.add_row(&row2);
+
+        let header = formatter.render_header();
+        let row1_str = formatter.render_row(&row1, false);
+        let row2_str = formatter.render_row(&row2, true);
+        let footer = formatter.render_footer();
+
+        assert!(header.contains("Name"));
+        assert!(header.contains("Value"));
+        assert!(row1_str.contains("key1"));
+        assert!(row2_str.contains("key2"));
+        assert!(footer.contains("└"));
     }
 }

@@ -17,6 +17,8 @@
 - Classify licenses into permissive, restrictive, or unknown categories.
 - Flag dependencies with licenses that may restrict personal or commercial use.
 - Output results in plain text, JSON or TUI formats. There's also a gist format which is available in strict mode to output a single line only.
+- CI/CD support for Github Actions and Jenkins.
+- Verbose mode gives an enhanced view of all licenses.
 
 ### Support Languages
 

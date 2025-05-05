@@ -13,9 +13,12 @@ feluda/
 ├── src/
 │   ├── main.rs          # CLI entry point
 │   ├── cli.rs           # CLI argument handling
+│   ├── config.rs        # Configuration management
+│   ├── debug.rs         # Debug and logging utilities
 │   ├── parser.rs        # Dependency parsing logic
 │   ├── licenses.rs      # License analysis
-│   └── reporter.rs      # Output formatting and reporting
+│   ├── reporter.rs      # Output formatting and reporting
+│   └── table.rs         # TUI components
 ├── Cargo.toml           # Project metadata
 ├── LICENSE              # Project license
 └── README.md            # Project documentation
@@ -48,11 +51,80 @@ cargo build
 cargo test
 ```
 
+### Debug Mode
+
+Feluda has a comprehensive debug system that helps with troubleshooting and development. To enable debug mode, run Feluda with the `--debug` or `-d` flag:
+
+```sh
+feluda --debug
+```
+
+#### Debug Features
+
+The debug mode provides the following features:
+
+1. **Detailed Logging**: Log messages are printed with different levels:
+   - `INFO`: General information about operations
+   - `WARN`: Potential issues that don't stop execution
+   - `ERROR`: Problems that caused an operation to fail
+   - `TRACE`: Detailed debugging information about data structures
+
+2. **Performance Metrics**: Debug mode automatically times key operations and reports their duration.
+
+3. **Data Inspection**: Complex data structures are printed in debug format for inspection.
+
+4. **Error Context**: Errors include detailed context to help identify root causes.
+
+#### Logging in Your Code
+
+When adding new features, include appropriate logging using the debug module:
+
+```rust
+// Import debug utilities
+use crate::debug::{log, LogLevel, log_debug, log_error};
+
+// Log informational messages
+log(LogLevel::Info, "Starting important operation");
+
+// Log warnings
+log(LogLevel::Warn, "Resource XYZ not found, using default");
+
+// Log errors with context
+if let Err(err) = some_operation() {
+    log_error("Failed to complete operation", &err);
+}
+
+// Log complex data structures for debugging
+log_debug("Retrieved configuration", &config);
+
+// Time operations
+let result = with_debug("Complex calculation", || {
+    // Your code here
+    perform_complex_calculation()
+});
+```
+
+#### Error Handling
+
+Feluda uses a custom error type for consistent error handling. When adding new code, use the `FeludaError` and `FeludaResult` types:
+
+```rust
+// Return a Result with a specific error type
+fn my_function() -> FeludaResult<MyType> {
+    match some_operation() {
+        Ok(result) => Ok(result),
+        Err(err) => Err(FeludaError::Parser(format!("Operation failed: {}", err)))
+    }
+}
+```
+
 ### Guidelines
 
 - **Code Style**: Follow Rust's standard coding conventions.
 - **Testing**: Ensure your changes are covered by unit tests.
 - **Documentation**: Update relevant documentation and comments.
+- **Logging**: Add appropriate debug logging for new functionality.
+- **Error Handling**: Use the `FeludaError` type for consistent error reporting.
 
 ### Submitting Changes
 
@@ -144,7 +216,3 @@ just clean
 ```sh
 just login
 ```
-
-### Debug Mode
-
-You can now add `cli::DEBUG_MODE.load(Ordering::Relaxed)` wherever you need to add debug logs.

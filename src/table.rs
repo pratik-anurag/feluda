@@ -1,3 +1,4 @@
+use crate::debug::{log, log_debug, LogLevel};
 use crate::licenses::LicenseInfo;
 use color_eyre::Result;
 use ratatui::{
@@ -61,19 +62,23 @@ pub struct App {
 
 impl App {
     pub fn new(license_data: Vec<LicenseInfo>) -> Self {
+        log(LogLevel::Info, "Initializing TUI application");
+        log_debug("License data for TUI", &license_data);
+
         let data_vec = license_data;
         Self {
             state: TableState::default().with_selected(0),
             longest_item_lens: constraint_len_calculator(&data_vec),
-            scroll_state: ScrollbarState::new((data_vec.len() - 1) * ITEM_HEIGHT),
+            scroll_state: ScrollbarState::new((data_vec.len().saturating_sub(1)) * ITEM_HEIGHT),
             colors: TableColors::new(&TABLE_COLOUR),
             items: data_vec,
         }
     }
+
     pub fn next_row(&mut self) {
         let i = match self.state.selected() {
             Some(i) => {
-                if i >= self.items.len() - 1 {
+                if i >= self.items.len().saturating_sub(1) {
                     0
                 } else {
                     i + 1
@@ -83,13 +88,14 @@ impl App {
         };
         self.state.select(Some(i));
         self.scroll_state = self.scroll_state.position(i * ITEM_HEIGHT);
+        log(LogLevel::Info, &format!("Selected row: {}", i));
     }
 
     pub fn previous_row(&mut self) {
         let i = match self.state.selected() {
             Some(i) => {
                 if i == 0 {
-                    self.items.len() - 1
+                    self.items.len().saturating_sub(1)
                 } else {
                     i - 1
                 }
@@ -98,14 +104,17 @@ impl App {
         };
         self.state.select(Some(i));
         self.scroll_state = self.scroll_state.position(i * ITEM_HEIGHT);
+        log(LogLevel::Info, &format!("Selected row: {}", i));
     }
 
     pub fn next_column(&mut self) {
         self.state.select_next_column();
+        log(LogLevel::Info, "Selected next column");
     }
 
     pub fn previous_column(&mut self) {
         self.state.select_previous_column();
+        log(LogLevel::Info, "Selected previous column");
     }
 
     pub fn set_colors(&mut self) {
@@ -113,13 +122,20 @@ impl App {
     }
 
     pub fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
+        log(LogLevel::Info, "Starting TUI application loop");
+
         loop {
+            // Render the current state
             terminal.draw(|frame| self.draw(frame))?;
 
+            // Handle input events
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                        KeyCode::Char('q') | KeyCode::Esc => {
+                            log(LogLevel::Info, "Quitting TUI application");
+                            return Ok(());
+                        }
                         KeyCode::Char('j') | KeyCode::Down => self.next_row(),
                         KeyCode::Char('k') | KeyCode::Up => self.previous_row(),
                         KeyCode::Char('l') | KeyCode::Right => self.next_column(),
@@ -143,6 +159,8 @@ impl App {
     }
 
     fn render_table(&mut self, frame: &mut Frame, area: Rect) {
+        log(LogLevel::Info, "Rendering table");
+
         let header_style = Style::default()
             .fg(self.colors.header_fg)
             .bg(self.colors.header_bg);
@@ -160,6 +178,7 @@ impl App {
             .collect::<Row>()
             .style(header_style)
             .height(1);
+
         let rows = self.items.iter().enumerate().map(|(i, data)| {
             let color = match i % 2 {
                 0 => self.colors.normal_row_color,
@@ -177,6 +196,7 @@ impl App {
                 .style(Style::new().fg(self.colors.row_fg).bg(color))
                 .height(4)
         });
+
         let bar = " █ ";
         let t = Table::new(
             rows,
@@ -200,7 +220,13 @@ impl App {
         ]))
         .bg(self.colors.buffer_bg)
         .highlight_spacing(HighlightSpacing::Always);
+
         frame.render_stateful_widget(t, area, &mut self.state);
+
+        log(
+            LogLevel::Info,
+            &format!("Table rendered with {} rows", self.items.len()),
+        );
     }
 
     fn render_scrollbar(&mut self, frame: &mut Frame, area: Rect) {
@@ -235,36 +261,42 @@ impl App {
 }
 
 fn constraint_len_calculator(items: &[LicenseInfo]) -> (u16, u16, u16, u16) {
+    log(LogLevel::Info, "Calculating column widths for table");
+
     let name_len = items
         .iter()
         .map(LicenseInfo::name)
         .map(UnicodeWidthStr::width)
         .max()
         .unwrap_or(0);
+
     let version_len = items
         .iter()
         .map(LicenseInfo::version)
         .map(UnicodeWidthStr::width)
         .max()
         .unwrap_or(0);
+
     let license_len = items
         .iter()
-        .map(LicenseInfo::version)
-        .map(UnicodeWidthStr::width)
-        .max()
-        .unwrap_or(0);
-    let restricted_len = items
-        .iter()
-        .map(LicenseInfo::version)
-        .map(UnicodeWidthStr::width)
+        .map(|info| info.get_license())
+        .map(|s| s.width())
         .max()
         .unwrap_or(0);
 
+    let restricted_len = "true".width().max("false".width());
+
     #[allow(clippy::cast_possible_truncation)]
-    (
+    let result = (
         name_len as u16,
         version_len as u16,
         license_len as u16,
         restricted_len as u16,
-    )
+    );
+
+    log(
+        LogLevel::Info,
+        &format!("Table column widths: {:?}", result),
+    );
+    result
 }

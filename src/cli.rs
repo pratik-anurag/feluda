@@ -1,13 +1,9 @@
 use clap::{ArgGroup, Parser, ValueEnum};
 use spinners::{Spinner, Spinners};
 use std::io::{self, Write};
-use std::sync::atomic::{AtomicBool, Ordering};
 
-pub static DEBUG_MODE: AtomicBool = AtomicBool::new(false);
-
-pub fn set_debug_mode(debug: bool) {
-    DEBUG_MODE.store(debug, Ordering::Relaxed);
-}
+// Import from the debug module instead of defining here
+use crate::debug::{is_debug_mode, log, LogLevel};
 
 /// CI output format options
 #[derive(ValueEnum, Clone, Debug)]
@@ -75,8 +71,13 @@ pub fn with_spinner<F, T>(message: &str, f: F) -> T
 where
     F: FnOnce() -> T,
 {
-    if DEBUG_MODE.load(Ordering::Relaxed) {
-        f()
+    if is_debug_mode() {
+        log(LogLevel::Info, &format!("Operation: {}", message));
+        let start = std::time::Instant::now();
+        let result = f();
+        let duration = start.elapsed();
+        log(LogLevel::Info, &format!("Completed in {:?}", duration));
+        result
     } else {
         let mut sp = Spinner::new(Spinners::Dots10, message.into());
         let result = f();
