@@ -208,6 +208,50 @@ feluda --gui
 
 ![ss-gui](https://github.com/user-attachments/assets/67170931-7fde-4bb0-b4b0-8640b8a261d6)
 
+## CI/CD Integration
+
+CI Integration Options
+Feluda provides several options for CI integration:
+
+- `--ci-format <github|jenkins>`: Generate output compatible with the specified CI system
+- `--fail-on-restrictive`: Make the CI build fail when restrictive licenses are found
+- `--output-file <path>`: Write the output to a file instead of stdout
+
+Feluda can be easily integrated into your CI/CD pipelines with built-in support for **GitHub Actions** and **Jenkins**.
+
+### GitHub Actions
+
+To use Feluda with GitHub Actions, create a `.github/workflows/feluda.yml` file with the following content:
+
+```yaml
+name: License Check
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  check-licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Install Feluda
+        run: cargo install feluda
+
+      - name: Check licenses
+        run: feluda --ci-format github --fail-on-restrictive
+
 Checkout [contributing guidelines](./CONTRIBUTING.md) if you are looking to contribute to this project.
 
 > Currently, using [choosealicense](https://choosealicense.com/) license directory for source of truth.

@@ -25,7 +25,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         ratatui::restore();
         Ok(app_result?)
     } else {
-        generate_report(analyzed_data, args.json, args.verbose, args.strict);
+        let has_restrictive = generate_report(
+            analyzed_data,
+            args.json,
+            args.verbose,
+            args.strict,
+            args.ci_format,
+            args.output_file,
+        );
+
+        // Exit with non-zero code if requested and restrictive licenses found
+        if args.fail_on_restrictive && has_restrictive {
+            std::process::exit(1);
+        }
+
         Ok(())
     }
 }

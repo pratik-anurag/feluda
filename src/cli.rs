@@ -1,4 +1,4 @@
-use clap::{ArgGroup, Parser};
+use clap::{ArgGroup, Parser, ValueEnum};
 use spinners::{Spinner, Spinners};
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -7,6 +7,15 @@ pub static DEBUG_MODE: AtomicBool = AtomicBool::new(false);
 
 pub fn set_debug_mode(debug: bool) {
     DEBUG_MODE.store(debug, Ordering::Relaxed);
+}
+
+/// CI output format options
+#[derive(ValueEnum, Clone, Debug)]
+pub enum CiFormat {
+    /// GitHub Actions compatible format
+    Github,
+    /// Jenkins compatible format (JUnit XML)
+    Jenkins,
 }
 
 #[derive(Parser, Debug)]
@@ -43,6 +52,18 @@ pub struct Cli {
     /// Specify the language to scan
     #[arg(long, short)]
     pub language: Option<String>,
+
+    /// Output format for CI systems (github, jenkins)
+    #[arg(long, value_enum)]
+    pub ci_format: Option<CiFormat>,
+
+    /// Path to write the CI report file
+    #[arg(long)]
+    pub output_file: Option<String>,
+
+    /// Fail with non-zero exit code when restrictive licenses are found
+    #[arg(long)]
+    pub fail_on_restrictive: bool,
 }
 
 pub fn clear_last_line() {

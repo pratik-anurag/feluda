@@ -163,10 +163,8 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
                         });
                     }
                 }
-            } else {
-                if cli::DEBUG_MODE.load(Ordering::Relaxed) {
-                    println!("\nFailed to find dependencies in pyproject.toml");
-                }
+            } else if cli::DEBUG_MODE.load(Ordering::Relaxed) {
+                println!("\nFailed to find dependencies in pyproject.toml");
             }
         }
     } else {

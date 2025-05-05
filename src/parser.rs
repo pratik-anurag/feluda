@@ -54,7 +54,11 @@ fn find_project_roots(root_path: impl AsRef<Path>) -> Vec<ProjectRoot> {
     let mut project_roots = Vec::new();
 
     for entry in Walk::new(root_path).flatten() {
-        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
+        if let Some(file_type) = entry.file_type() {
+            if !file_type.is_file() {
+                continue;
+            }
+        } else {
             continue;
         }
 

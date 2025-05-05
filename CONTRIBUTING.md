@@ -1,6 +1,10 @@
-Welcoming contributions from the community! 
+# Contributing Guide
+
+Welcoming contributions from the community! 🙌
 
 [![Made with Rust](https://img.shields.io/badge/Made%20with-Rust-orange?logo=rust)](https://www.rust-lang.org/)
+
+_Minimum Supported Rust Version: `1.70.0`_
 
 ### Folder Structure:
 

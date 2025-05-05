@@ -54,3 +54,30 @@ clean:
 login:
     @echo "🔑 Logging in to crates.io..."
     cargo login
+
+# Run unit tests
+test:
+    @echo "🧪 Running unit tests..."
+    cargo test
+
+# Format code and check for lint issues
+format:
+    @echo "🎨 Formatting code with rustfmt..."
+    cargo fmt --all
+    @echo "✅ Format complete!"
+
+# Check for lint issues without making changes
+lint:
+    @echo "🔍 Checking code style with rustfmt..."
+    cargo fmt --all -- --check
+    @echo "🔬 Running clippy lints..."
+    cargo clippy -- -D warnings
+
+# Run all checks before submitting code
+check-all: format lint test
+    @echo "🎉 All checks passed! Code is ready for submission."
+
+# Run benchmarks
+bench:
+    @echo "⏱️ Running benchmarks..."
+    cargo bench

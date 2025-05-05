@@ -1,3 +1,4 @@
+use crate::licenses::LicenseInfo;
 use color_eyre::Result;
 use ratatui::{
     crossterm::event::{self, Event, KeyCode, KeyEventKind},
@@ -12,11 +13,9 @@ use ratatui::{
 };
 use style::palette::tailwind;
 use unicode_width::UnicodeWidthStr;
-use crate::licenses::LicenseInfo;
 
-const INFO_TEXT: [&str; 1] = [
-    "(Esc) quit | (↑) move up | (↓) move down | (←) move left | (→) move right",
-];
+const INFO_TEXT: [&str; 1] =
+    ["(Esc) quit | (↑) move up | (↓) move down | (←) move left | (→) move right"];
 
 const ITEM_HEIGHT: usize = 4;
 
@@ -166,7 +165,12 @@ impl App {
                 0 => self.colors.normal_row_color,
                 _ => self.colors.alt_row_color,
             };
-            let item = [&data.name, &data.version,  &data.get_license(), &data.is_restrictive().to_string()];
+            let item = [
+                &data.name,
+                &data.version,
+                &data.get_license(),
+                &data.is_restrictive().to_string(),
+            ];
             item.into_iter()
                 .map(|content| Cell::from(Text::from(format!("\n{content}\n"))))
                 .collect::<Row>()
@@ -256,7 +260,11 @@ fn constraint_len_calculator(items: &[LicenseInfo]) -> (u16, u16, u16, u16) {
         .max()
         .unwrap_or(0);
 
-
     #[allow(clippy::cast_possible_truncation)]
-    (name_len as u16, version_len as u16, license_len as u16, restricted_len as u16)
+    (
+        name_len as u16,
+        version_len as u16,
+        license_len as u16,
+        restricted_len as u16,
+    )
 }

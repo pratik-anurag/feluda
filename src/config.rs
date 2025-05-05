@@ -36,8 +36,7 @@ use figment::{
 use serde::{Deserialize, Serialize};
 
 /// Main configuration structure for Feluda
-#[derive(Debug, Deserialize, Serialize)]
-#[derive(Default)]
+#[derive(Debug, Deserialize, Serialize, Default)]
 pub struct FeludaConfig {
     #[serde(default)]
     pub licenses: LicenseConfig,
@@ -68,7 +67,6 @@ impl Default for LicenseConfig {
         }
     }
 }
-
 
 /// Returns the default list of restrictive licenses
 fn default_restrictive_licenses() -> Vec<String> {
