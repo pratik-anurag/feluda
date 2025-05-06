@@ -7,14 +7,22 @@ mod reporter;
 mod table;
 
 use clap::Parser;
-use cli::Cli;
+use cli::{print_version_info, Cli};
 use debug::{log, log_debug, set_debug_mode, FeludaError, FeludaResult, LogLevel};
 use parser::parse_root;
 use reporter::generate_report;
+use std::env;
 use std::process;
 use table::App;
 
 fn main() {
+    // Check if --version or -V is passed alone
+    let args: Vec<String> = env::args().collect();
+    if args.len() == 2 && (args[1] == "--version" || args[1] == "-V") {
+        print_version_info();
+        return;
+    }
+
     match run() {
         Ok(_) => {}
         Err(e) => {

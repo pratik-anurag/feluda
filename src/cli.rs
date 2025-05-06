@@ -1,4 +1,5 @@
 use clap::{ArgGroup, Parser, ValueEnum};
+use colored::*;
 use spinners::{Spinner, Spinners};
 use std::io::{self, Write};
 
@@ -15,8 +16,13 @@ pub enum CiFormat {
 }
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
+#[command(author, version)]
+#[command(about = env!("CARGO_PKG_DESCRIPTION"))]
+#[command(
+    long_about = "Feluda is a CLI tool that analyzes the dependencies of a project, identifies their licenses, and flags any that may restrict personal or commercial usage."
+)]
 #[command(group(ArgGroup::new("output").args(["json"])))]
+#[command(before_help = format_before_help())]
 pub struct Cli {
     /// Path to the local project directory
     #[arg(short, long, default_value = "./")]
@@ -60,6 +66,51 @@ pub struct Cli {
     /// Fail with non-zero exit code when restrictive licenses are found
     #[arg(long)]
     pub fail_on_restrictive: bool,
+}
+
+fn format_before_help() -> String {
+    format!(
+        "{}\n{}\n{}",
+        "┌───────────────────────────────────────────┐".bright_cyan(),
+        "│           FELUDA LICENSE CHECKER          │"
+            .bright_cyan()
+            .bold(),
+        "└───────────────────────────────────────────┘".bright_cyan()
+    )
+}
+
+// Function to print a customized version info
+pub fn print_version_info() {
+    // Get version from Cargo.toml using env!
+    let version = env!("CARGO_PKG_VERSION");
+    let title = format!("Feluda v{}", version);
+    let width = title.len() + 4;
+    let border = "─".repeat(width);
+
+    println!("{}", format!("┌{}┐", border).bright_red());
+    println!(
+        "{}",
+        format!("│ {}   │", title.bright_white().bold()).bright_red()
+    );
+    println!("{}", format!("└{}┘", border).bright_red());
+    println!(
+        "{}",
+        "\nA dependency license checker written in Rust.".bright_yellow()
+    );
+    println!(
+        "{}",
+        "Checks for permissive and restrictive licenses.".bright_yellow()
+    );
+    println!(
+        "{}",
+        "\nFound Feluda useful? ✨ Star the repository:"
+            .yellow()
+            .bold()
+    );
+    println!(
+        "{}",
+        "https://github.com/anistark/feluda".blue().underline()
+    );
 }
 
 pub fn clear_last_line() {
