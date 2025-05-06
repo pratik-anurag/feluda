@@ -68,7 +68,7 @@ lint:
     @echo "🔍 Checking code style with rustfmt..."
     cargo fmt --all -- --check
     @echo "🔬 Running clippy lints..."
-    cargo clippy -- -D warnings
+    cargo clippy --all-targets --all-features -- -D warnings
 
 # Run all checks before submitting code
 check-all: format lint test

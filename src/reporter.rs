@@ -557,35 +557,35 @@ mod tests {
     fn test_generate_report_empty_data() {
         let data = vec![];
         let result = generate_report(data, false, false, false, None, None);
-        assert_eq!(result, false);
+        assert!(!result);
     }
 
     #[test]
     fn test_generate_report_non_strict() {
         let data = get_test_data();
         let result = generate_report(data, false, false, false, None, None);
-        assert_eq!(result, true);
+        assert!(result);
     }
 
     #[test]
     fn test_generate_report_strict() {
         let data = get_test_data();
         let result = generate_report(data, false, false, true, None, None);
-        assert_eq!(result, true);
+        assert!(result);
     }
 
     #[test]
     fn test_generate_report_json() {
         let data = get_test_data();
         let result = generate_report(data, true, false, false, None, None);
-        assert_eq!(result, true);
+        assert!(result);
     }
 
     #[test]
     fn test_generate_report_verbose() {
         let data = get_test_data();
         let result = generate_report(data, false, true, false, None, None);
-        assert_eq!(result, true);
+        assert!(result);
     }
 
     #[test]
