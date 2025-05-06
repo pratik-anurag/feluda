@@ -431,7 +431,7 @@ fn output_github_format(license_info: &[LicenseInfo], output_path: Option<&str>)
                     &err,
                 );
                 println!("Error: Failed to write GitHub Actions output file");
-                println!("{}", output); // Fallback to stdout
+                println!("{}", output);
             }
         }
     } else {
