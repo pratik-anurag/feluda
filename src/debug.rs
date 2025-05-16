@@ -115,6 +115,7 @@ pub enum FeludaError {
     Config(String),
 
     #[error("License analysis error: {0}")]
+    #[allow(dead_code)]
     License(String),
 
     #[error("Parser error: {0}")]

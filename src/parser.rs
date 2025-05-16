@@ -211,12 +211,13 @@ fn matches_language(project_type: Language, language: &str) -> bool {
     )
 }
 
+// Parse dependencies based on the project type
 fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
     let project_path = &root.path;
     let project_type = root.project_type;
 
-    // Simplest approach that doesn't require changing other files
-    let licenses = cli::with_spinner(&format!("🔎: {}", project_path.display()), || {
+    // Use the new loading indicator
+    let licenses = cli::with_spinner(&format!("🔎: {}", project_path.display()), |indicator| {
         // Create a match statement that returns Vec<LicenseInfo> directly, not Result<Vec<LicenseInfo>>
         match project_type {
             Language::Rust(_) => {
@@ -225,6 +226,8 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
                     LogLevel::Info,
                     &format!("Parsing Rust project: {}", project_path.display()),
                 );
+
+                indicator.update_progress("analyzing Cargo.toml");
 
                 match MetadataCommand::new()
                     .manifest_path(Path::new(&project_path))
@@ -235,6 +238,10 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
                             LogLevel::Info,
                             &format!("Found {} packages in Rust project", metadata.packages.len()),
                         );
+                        indicator.update_progress(&format!(
+                            "found {} packages",
+                            metadata.packages.len()
+                        ));
                         analyze_rust_licenses(metadata.packages)
                     }
                     Err(err) => {
@@ -253,10 +260,14 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
                     &format!("Parsing Node.js project: {}", project_path.display()),
                 );
 
+                indicator.update_progress("analyzing package.json");
+
                 match project_path.to_str() {
-                    Some(path_str) => {
-                        with_debug("Analyze JS licenses", || analyze_js_licenses(path_str))
-                    }
+                    Some(path_str) => with_debug("Analyze JS licenses", || {
+                        let deps = analyze_js_licenses(path_str);
+                        indicator.update_progress(&format!("found {} dependencies", deps.len()));
+                        deps
+                    }),
                     None => {
                         log(LogLevel::Error, "Failed to convert Node.js path to string");
                         Vec::new() // Return empty vector on error
@@ -270,10 +281,14 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
                     &format!("Parsing Go project: {}", project_path.display()),
                 );
 
+                indicator.update_progress("analyzing go.mod");
+
                 match project_path.to_str() {
-                    Some(path_str) => {
-                        with_debug("Analyze Go licenses", || analyze_go_licenses(path_str))
-                    }
+                    Some(path_str) => with_debug("Analyze Go licenses", || {
+                        let deps = analyze_go_licenses(path_str);
+                        indicator.update_progress(&format!("found {} dependencies", deps.len()));
+                        deps
+                    }),
                     None => {
                         log(LogLevel::Error, "Failed to convert Go path to string");
                         Vec::new() // Return empty vector on error
@@ -289,9 +304,14 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
                             &format!("Parsing Python project: {}", project_path.display()),
                         );
 
+                        indicator.update_progress(&format!("analyzing {}", python_package_file));
+
                         match project_path.to_str() {
                             Some(path_str) => with_debug("Analyze Python licenses", || {
-                                analyze_python_licenses(path_str)
+                                let deps = analyze_python_licenses(path_str);
+                                indicator
+                                    .update_progress(&format!("found {} dependencies", deps.len()));
+                                deps
                             }),
                             None => {
                                 log(LogLevel::Error, "Failed to convert Python path to string");
