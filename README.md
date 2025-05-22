@@ -5,8 +5,7 @@
 
 🔎 **Feluda** is a Rust-based command-line tool that analyzes the dependencies of a project, notes down their licenses, and flags any permissions that restrict personal or commercial usage or are incompatible with your project's license.
 
-![ss](https://github.com/user-attachments/assets/1d1276e1-e83a-4b92-a8a9-f7d9d12b08e6)
-
+![ss](https://github.com/user-attachments/assets/473908eb-43cb-4c4f-86aa-017de251afa8)
 
 > 👋 It's still highly experimental, but fast iterating. Welcoming contributors and support to help bring out this project even better!
 
@@ -231,7 +230,8 @@ We've an awesome ✨ TUI mode available to browse through the dependencies in a 
 feluda --gui
 ```
 
-![ss-gui](https://github.com/user-attachments/assets/67170931-7fde-4bb0-b4b0-8640b8a261d6)
+![ss-gui](https://github.com/user-attachments/assets/44d46755-b186-4326-a3fb-548da31f3acd)
+
 
 ## CI/CD Integration
 
