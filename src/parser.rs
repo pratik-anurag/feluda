@@ -1,13 +1,12 @@
 use crate::cli;
 use crate::debug::{log, log_debug, with_debug, FeludaResult, LogLevel};
+use crate::licenses::{
+    analyze_go_licenses, analyze_js_licenses, analyze_python_licenses, analyze_rust_licenses,
+    LicenseCompatibility, LicenseInfo,
+};
 use cargo_metadata::MetadataCommand;
 use ignore::Walk;
 use std::path::{Path, PathBuf};
-
-use crate::licenses::{
-    analyze_go_licenses, analyze_js_licenses, analyze_python_licenses, analyze_rust_licenses,
-    LicenseInfo,
-};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Language {
@@ -198,6 +197,13 @@ pub fn parse_root(
         LogLevel::Info,
         &format!("Total dependencies found: {}", licenses.len()),
     );
+
+    // Initialize all dependencies with Unknown compatibility
+    // (compatibility will be updated in main.rs once project license is determined)
+    for license in &mut licenses {
+        license.compatibility = LicenseCompatibility::Unknown;
+    }
+
     Ok(licenses)
 }
 
@@ -216,7 +222,7 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
     let project_path = &root.path;
     let project_type = root.project_type;
 
-    // Use the new loading indicator
+    // Use the loading indicator
     let licenses = cli::with_spinner(&format!("🔎: {}", project_path.display()), |indicator| {
         // Create a match statement that returns Vec<LicenseInfo> directly, not Result<Vec<LicenseInfo>>
         match project_type {
@@ -242,7 +248,15 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
                             "found {} packages",
                             metadata.packages.len()
                         ));
-                        analyze_rust_licenses(metadata.packages)
+
+                        let mut license_info = analyze_rust_licenses(metadata.packages);
+
+                        // Initialize compatibility to Unknown - it will be set in main.rs
+                        for info in &mut license_info {
+                            info.compatibility = LicenseCompatibility::Unknown;
+                        }
+
+                        license_info
                     }
                     Err(err) => {
                         log(
@@ -264,7 +278,13 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
 
                 match project_path.to_str() {
                     Some(path_str) => with_debug("Analyze JS licenses", || {
-                        let deps = analyze_js_licenses(path_str);
+                        let mut deps = analyze_js_licenses(path_str);
+
+                        // Initialize compatibility to Unknown - it will be set in main.rs
+                        for info in &mut deps {
+                            info.compatibility = LicenseCompatibility::Unknown;
+                        }
+
                         indicator.update_progress(&format!("found {} dependencies", deps.len()));
                         deps
                     }),
@@ -285,7 +305,13 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
 
                 match project_path.to_str() {
                     Some(path_str) => with_debug("Analyze Go licenses", || {
-                        let deps = analyze_go_licenses(path_str);
+                        let mut deps = analyze_go_licenses(path_str);
+
+                        // Initialize compatibility to Unknown - it will be set in main.rs
+                        for info in &mut deps {
+                            info.compatibility = LicenseCompatibility::Unknown;
+                        }
+
                         indicator.update_progress(&format!("found {} dependencies", deps.len()));
                         deps
                     }),
@@ -308,7 +334,13 @@ fn parse_dependencies(root: &ProjectRoot) -> FeludaResult<Vec<LicenseInfo>> {
 
                         match project_path.to_str() {
                             Some(path_str) => with_debug("Analyze Python licenses", || {
-                                let deps = analyze_python_licenses(path_str);
+                                let mut deps = analyze_python_licenses(path_str);
+
+                                // Initialize compatibility to Unknown - it will be set in main.rs
+                                for info in &mut deps {
+                                    info.compatibility = LicenseCompatibility::Unknown;
+                                }
+
                                 indicator
                                     .update_progress(&format!("found {} dependencies", deps.len()));
                                 deps

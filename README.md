@@ -1,11 +1,9 @@
-![feluda-cover](https://github.com/user-attachments/assets/152e73fd-8040-4ba6-a61d-a7e28f1962db)
-
 # Feluda
 
 [![Crates.io Version](https://img.shields.io/crates/v/feluda)
 ](https://crates.io/crates/feluda) [![Crates.io Downloads](https://img.shields.io/crates/d/feluda)](https://crates.io/crates/feluda) [![Crates.io Downloads (latest version)](https://img.shields.io/crates/dv/feluda)](https://crates.io/crates/feluda) [![Open Source](https://img.shields.io/badge/open-source-brightgreen)](https://github.com/anistark/feluda) [![Contributors](https://img.shields.io/github/contributors/anistark/feluda)](https://github.com/anistark/feluda/graphs/contributors) ![maintenance-status](https://img.shields.io/badge/maintenance-actively--developed-brightgreen.svg)
 
-🔎 **Feluda** is a Rust-based command-line tool that analyzes the dependencies of a project, notes down their licenses, and flags any permissions that restrict personal or commercial usage.
+🔎 **Feluda** is a Rust-based command-line tool that analyzes the dependencies of a project, notes down their licenses, and flags any permissions that restrict personal or commercial usage or are incompatible with your project's license.
 
 ![ss](https://github.com/user-attachments/assets/1d1276e1-e83a-4b92-a8a9-f7d9d12b08e6)
 
@@ -16,7 +14,9 @@
 
 - Parse your project to identify dependencies and their licenses.
 - Classify licenses into permissive, restrictive, or unknown categories.
+- Check license compatibility between dependencies and your project's license.
 - Flag dependencies with licenses that may restrict personal or commercial use.
+- Flag dependencies with licenses that may be incompatible with your project's license.
 - Output results in plain text, JSON or TUI formats. There's also a gist format which is available in strict mode to output a single line only.
 - CI/CD support for Github Actions and Jenkins.
 - Verbose mode gives an enhanced view of all licenses.
@@ -174,13 +174,15 @@ Sample Output for a sample cargo.toml file containing `serde` and `tokio` depend
     "name": "serde",
     "version": "1.0.151",
     "license": "MIT",
-    "is_restrictive": false
+    "is_restrictive": false,
+    "compatibility": "Compatible"
   },
   {
     "name": "tokio",
     "version": "1.0.2",
     "license": "MIT",
-    "is_restrictive": false
+    "is_restrictive": false,
+    "compatibility": "Compatible"
   }
 ]
 ```
@@ -191,6 +193,26 @@ For detailed information about each dependency:
 
 ```sh
 feluda --verbose
+```
+
+### License Compatibility
+
+Feluda can check if dependency licenses are compatible with your project's license:
+
+```sh
+feluda --project-license MIT
+```
+
+You can also filter for incompatible licenses only:
+
+```sh
+feluda --incompatible
+```
+
+And fail CI builds if incompatible licenses are found:
+
+```sh
+feluda --fail-on-incompatible
 ```
 
 ### Strict Mode
@@ -217,6 +239,7 @@ Feluda provides several options for CI integration:
 
 - `--ci-format <github|jenkins>`: Generate output compatible with the specified CI system
 - `--fail-on-restrictive`: Make the CI build fail when restrictive licenses are found
+- `--fail-on-incompatible`: Make the CI build fail when incompatible licenses are found
 - `--output-file <path>`: Write the output to a file instead of stdout
 
 Feluda can be easily integrated into your CI/CD pipelines with built-in support for **GitHub Actions** and **Jenkins**.
@@ -252,7 +275,7 @@ jobs:
         run: cargo install feluda
 
       - name: Check licenses
-        run: feluda --ci-format github --fail-on-restrictive
+        run: feluda --ci-format github --fail-on-restrictive --fail-on-incompatible
 ```
 
 Checkout [contributing guidelines](./CONTRIBUTING.md) if you are looking to contribute to this project.
@@ -310,5 +333,3 @@ The environment variables take precedence over both the configuration file and d
 Feluda is licensed under the [MIT License](./LICENSE).
 
 _Happy coding with Feluda!_ 🚀
-
-![felu](https://github.com/user-attachments/assets/82640681-0b64-4100-a847-754d4a7d1d87)

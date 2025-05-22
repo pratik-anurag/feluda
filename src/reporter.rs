@@ -1,6 +1,6 @@
 use crate::cli::CiFormat;
 use crate::debug::{log, log_debug, log_error, LogLevel};
-use crate::licenses::LicenseInfo;
+use crate::licenses::{LicenseCompatibility, LicenseInfo};
 use colored::*;
 use std::collections::HashMap;
 use std::fs;
@@ -82,12 +82,13 @@ pub fn generate_report(
     strict: bool,
     ci_format: Option<CiFormat>,
     output_file: Option<String>,
-) -> bool {
+    project_license: Option<String>,
+) -> (bool, bool) {
     log(
         LogLevel::Info,
         &format!(
-            "Generating report with options: json={}, verbose={}, strict={}, ci_format={:?}",
-            json, verbose, strict, ci_format
+            "Generating report with options: json={}, verbose={}, strict={}, ci_format={:?}, project_license={:?}",
+            json, verbose, strict, ci_format, project_license
         ),
     );
 
@@ -117,25 +118,42 @@ pub fn generate_report(
     log_debug("Filtered license data", &filtered_data);
 
     let has_restrictive = filtered_data.iter().any(|info| *info.is_restrictive());
+    let has_incompatible = filtered_data
+        .iter()
+        .any(|info| info.compatibility == LicenseCompatibility::Incompatible);
+
     log(
         LogLevel::Info,
         &format!("Has restrictive licenses: {}", has_restrictive),
     );
 
+    log(
+        LogLevel::Info,
+        &format!("Has incompatible licenses: {}", has_incompatible),
+    );
+
     if filtered_data.is_empty() {
         println!(
             "\n{}\n",
-            "🎉 All dependencies passed the license check! No restrictive licenses found."
+            "🎉 All dependencies passed the license check! No restrictive or incompatible licenses found."
                 .green()
                 .bold()
         );
-        return false;
+        return (false, false);
     }
 
     if let Some(format) = ci_format {
         match format {
-            CiFormat::Github => output_github_format(&filtered_data, output_file.as_deref()),
-            CiFormat::Jenkins => output_jenkins_format(&filtered_data, output_file.as_deref()),
+            CiFormat::Github => output_github_format(
+                &filtered_data,
+                output_file.as_deref(),
+                project_license.as_deref(),
+            ),
+            CiFormat::Jenkins => output_jenkins_format(
+                &filtered_data,
+                output_file.as_deref(),
+                project_license.as_deref(),
+            ),
         }
     } else if json {
         // JSON output
@@ -148,38 +166,55 @@ pub fn generate_report(
             }
         }
     } else if verbose {
-        // Change "else { if verbose {" to "else if verbose {"
+        // Changed "else { if verbose {" to "else if verbose {"
         log(LogLevel::Info, "Generating verbose table");
-        print_verbose_table(&filtered_data, strict);
+        print_verbose_table(&filtered_data, strict, project_license.as_deref());
     } else {
         log(LogLevel::Info, "Generating summary table");
-        print_summary_table(&filtered_data, total_packages, strict);
+        print_summary_table(
+            &filtered_data,
+            total_packages,
+            strict,
+            project_license.as_deref(),
+        );
     }
 
-    has_restrictive
+    (has_restrictive, has_incompatible)
 }
 
-fn print_verbose_table(license_info: &[LicenseInfo], strict: bool) {
+fn print_verbose_table(license_info: &[LicenseInfo], strict: bool, project_license: Option<&str>) {
     log(LogLevel::Info, "Printing verbose table");
 
-    let headers = vec![
+    let mut headers = vec![
         "Name".to_string(),
         "Version".to_string(),
         "License".to_string(),
         "Restrictive".to_string(),
     ];
 
+    // Add compatibility column if project license is available
+    if project_license.is_some() {
+        headers.push("Compatibility".to_string());
+    }
+
     let mut formatter = TableFormatter::new(headers);
 
     let rows: Vec<_> = license_info
         .iter()
         .map(|info| {
-            vec![
+            let mut row = vec![
                 info.name().to_string(),
                 info.version().to_string(),
                 info.get_license(),
                 info.is_restrictive().to_string(),
-            ]
+            ];
+
+            // Add compatibility if project license is available
+            if project_license.is_some() {
+                row.push(format!("{:?}", info.compatibility));
+            }
+
+            row
         })
         .collect();
 
@@ -193,17 +228,35 @@ fn print_verbose_table(license_info: &[LicenseInfo], strict: bool) {
 
     for (i, row) in rows.iter().enumerate() {
         let is_restrictive = *license_info[i].is_restrictive();
+        // let is_incompatible = license_info[i].compatibility == LicenseCompatibility::Incompatible;
+
+        // let style_fn = || {
+        //     let row_text = row.join(" │ ");
+        //     if is_incompatible {
+        //         row_text.red()
+        //     } else if is_restrictive {
+        //         row_text.yellow()
+        //     } else {
+        //         row_text.green()
+        //     }
+        // };
+
         println!("{}", formatter.render_row(row, is_restrictive));
     }
 
     println!("{}\n", formatter.render_footer());
 
     if !strict {
-        print_summary_footer(license_info);
+        print_summary_footer(license_info, project_license);
     }
 }
 
-fn print_summary_table(license_info: &[LicenseInfo], total_packages: usize, strict: bool) {
+fn print_summary_table(
+    license_info: &[LicenseInfo],
+    total_packages: usize,
+    strict: bool,
+    project_license: Option<&str>,
+) {
     log(LogLevel::Info, "Printing summary table");
 
     if strict {
@@ -215,8 +268,18 @@ fn print_summary_table(license_info: &[LicenseInfo], total_packages: usize, stri
         return;
     }
 
+    // Print project license if available
+    if let Some(license) = project_license {
+        println!(
+            "\n{} {}",
+            "📄".bold(),
+            format!("Project License: {}", license).bold()
+        );
+    }
+
     let mut license_count: HashMap<String, Vec<String>> = HashMap::new();
     let mut restrictive_licenses: Vec<&LicenseInfo> = Vec::new();
+    let mut incompatible_licenses: Vec<&LicenseInfo> = Vec::new();
 
     for info in license_info {
         let license = info.get_license();
@@ -229,6 +292,10 @@ fn print_summary_table(license_info: &[LicenseInfo], total_packages: usize, stri
                 .or_default()
                 .push(info.name().to_string());
         }
+
+        if info.compatibility == LicenseCompatibility::Incompatible {
+            incompatible_licenses.push(info);
+        }
     }
 
     log(
@@ -240,6 +307,13 @@ fn print_summary_table(license_info: &[LicenseInfo], total_packages: usize, stri
         &format!(
             "Found {} packages with restrictive licenses",
             restrictive_licenses.len()
+        ),
+    );
+    log(
+        LogLevel::Info,
+        &format!(
+            "Found {} packages with incompatible licenses",
+            incompatible_licenses.len()
         ),
     );
 
@@ -268,7 +342,7 @@ fn print_summary_table(license_info: &[LicenseInfo], total_packages: usize, stri
     rows.sort_by(|a, b| a[0].cmp(&b[0]));
 
     for row in &rows {
-        println!("{}", formatter.render_row(row, false));
+        println!("{}", formatter.render_row(row, true));
     }
 
     println!("{}", formatter.render_footer());
@@ -287,6 +361,18 @@ fn print_summary_table(license_info: &[LicenseInfo], total_packages: usize, stri
             "✅ No restrictive licenses found! 🎉".green().bold()
         );
     }
+
+    // Print incompatible licenses if project license is available
+    if project_license.is_some() && !incompatible_licenses.is_empty() {
+        if let Some(license) = project_license {
+            print_incompatible_licenses_table(&incompatible_licenses, license);
+        }
+    } else if project_license.is_some() {
+        println!(
+            "\n{}\n",
+            "✅ No incompatible licenses found! 🎉".green().bold()
+        );
+    }
 }
 
 fn print_restrictive_licenses_table(restrictive_licenses: &[&LicenseInfo]) {
@@ -301,7 +387,7 @@ fn print_restrictive_licenses_table(restrictive_licenses: &[&LicenseInfo]) {
     println!(
         "\n{} {}\n",
         "⚠️".bold(),
-        "Warning: Restrictive licenses found!".red().bold()
+        "Warning: Restrictive licenses found!".yellow().bold()
     );
 
     let headers = vec![
@@ -330,18 +416,93 @@ fn print_restrictive_licenses_table(restrictive_licenses: &[&LicenseInfo]) {
     println!("{}", formatter.render_header());
 
     for row in &rows {
-        println!("{}", formatter.render_row(row, true));
+        println!("{}", formatter.render_row(row, false));
     }
 
     println!("{}\n", formatter.render_footer());
 }
 
-fn print_summary_footer(license_info: &[LicenseInfo]) {
+fn print_incompatible_licenses_table(
+    incompatible_licenses: &[&LicenseInfo],
+    project_license: &str,
+) {
+    log(
+        LogLevel::Info,
+        &format!(
+            "Printing table for {} incompatible licenses",
+            incompatible_licenses.len()
+        ),
+    );
+
+    println!(
+        "\n{} {}\n",
+        "❌".bold(),
+        format!(
+            "Warning: Licenses incompatible with {} found!",
+            project_license
+        )
+        .red()
+        .bold()
+    );
+
+    let headers = vec![
+        "Package".to_string(),
+        "Version".to_string(),
+        "License".to_string(),
+    ];
+
+    let mut formatter = TableFormatter::new(headers);
+
+    let rows: Vec<_> = incompatible_licenses
+        .iter()
+        .map(|info| {
+            vec![
+                info.name().to_string(),
+                info.version().to_string(),
+                info.get_license(),
+            ]
+        })
+        .collect();
+
+    for row in &rows {
+        formatter.add_row(row);
+    }
+
+    println!("{}", formatter.render_header());
+
+    for row in &rows {
+        println!("{}", formatter.render_row(row, false));
+    }
+
+    println!("{}\n", formatter.render_footer());
+}
+
+fn print_summary_footer(license_info: &[LicenseInfo], project_license: Option<&str>) {
     log(LogLevel::Info, "Printing summary footer");
 
     let total = license_info.len();
     let restrictive_count = license_info.iter().filter(|i| *i.is_restrictive()).count();
     let permissive_count = total - restrictive_count;
+
+    // Calculate compatibility counts if project license is available
+    let (compatible_count, incompatible_count, unknown_count) = if project_license.is_some() {
+        (
+            license_info
+                .iter()
+                .filter(|i| i.compatibility == LicenseCompatibility::Compatible)
+                .count(),
+            license_info
+                .iter()
+                .filter(|i| i.compatibility == LicenseCompatibility::Incompatible)
+                .count(),
+            license_info
+                .iter()
+                .filter(|i| i.compatibility == LicenseCompatibility::Unknown)
+                .count(),
+        )
+    } else {
+        (0, 0, 0)
+    };
 
     println!("{}", "🔍 License Summary:".bold());
     println!(
@@ -351,9 +512,29 @@ fn print_summary_footer(license_info: &[LicenseInfo]) {
     );
     println!(
         "  • {} {}",
-        restrictive_count.to_string().red().bold(),
-        "restrictive licenses".red()
+        restrictive_count.to_string().yellow().bold(),
+        "restrictive licenses".yellow()
     );
+
+    // Print compatibility info if project license is available
+    if project_license.is_some() {
+        println!(
+            "  • {} {}",
+            compatible_count.to_string().green().bold(),
+            "compatible licenses".green()
+        );
+        println!(
+            "  • {} {}",
+            incompatible_count.to_string().red().bold(),
+            "incompatible licenses".red()
+        );
+        println!(
+            "  • {} {}",
+            unknown_count.to_string().blue().bold(),
+            "unknown compatibility".blue()
+        );
+    }
+
     println!("  • {} total dependencies", total);
 
     if restrictive_count > 0 {
@@ -369,10 +550,23 @@ fn print_summary_footer(license_info: &[LicenseInfo]) {
         );
     }
 
+    // Add compatibility recommendation if project license is available
+    if project_license.is_some() && incompatible_count > 0 {
+        println!("\n{} {}: Some dependencies have licenses that may be incompatible with your project's {} license. Review for legal compliance.",
+            "❌".red().bold(),
+            "Warning".red().bold(),
+            project_license.unwrap()
+        );
+    }
+
     println!();
 }
 
-fn output_github_format(license_info: &[LicenseInfo], output_path: Option<&str>) {
+fn output_github_format(
+    license_info: &[LicenseInfo],
+    output_path: Option<&str>,
+    project_license: Option<&str>,
+) {
     log(
         LogLevel::Info,
         "Generating GitHub Actions compatible output",
@@ -381,7 +575,15 @@ fn output_github_format(license_info: &[LicenseInfo], output_path: Option<&str>)
     // GitHub Actions workflow commands format
     let mut output = String::new();
 
-    // GitHub Actions workflow commands format
+    // Add project license info if available
+    if let Some(license) = project_license {
+        output.push_str(&format!(
+            "::notice title=Project License::Project is using {} license\n",
+            license
+        ));
+    }
+
+    // GitHub Actions workflow commands format for restrictive licenses
     for info in license_info {
         if *info.is_restrictive() {
             let warning = format!(
@@ -394,24 +596,61 @@ fn output_github_format(license_info: &[LicenseInfo], output_path: Option<&str>)
 
             log(
                 LogLevel::Info,
-                &format!("Added warning for: {}", info.name()),
+                &format!("Added warning for restrictive license: {}", info.name()),
+            );
+        }
+
+        // Add incompatible license warnings if project license is available
+        if project_license.is_some() && info.compatibility == LicenseCompatibility::Incompatible {
+            let warning = format!(
+                "::error title=Incompatible License::Dependency '{}@{}' has license {} which may be incompatible with project license {}\n",
+                info.name(),
+                info.version(),
+                info.get_license(),
+                project_license.unwrap()
+            );
+            output.push_str(&warning);
+
+            log(
+                LogLevel::Info,
+                &format!("Added error for incompatible license: {}", info.name()),
             );
         }
     }
 
     let restrictive_count = license_info.iter().filter(|i| *i.is_restrictive()).count();
-    let summary = format!(
-        "::notice title=License Check Summary::Found {} dependencies with restrictive licenses out of {} total\n",
-        restrictive_count,
-        license_info.len()
-    );
+    let incompatible_count = if project_license.is_some() {
+        license_info
+            .iter()
+            .filter(|i| i.compatibility == LicenseCompatibility::Incompatible)
+            .count()
+    } else {
+        0
+    };
+
+    let summary = if project_license.is_some() {
+        format!(
+            "::notice title=License Check Summary::Found {} dependencies with restrictive licenses and {} dependencies with incompatible licenses out of {} total\n",
+            restrictive_count,
+            incompatible_count,
+            license_info.len()
+        )
+    } else {
+        format!(
+            "::notice title=License Check Summary::Found {} dependencies with restrictive licenses out of {} total\n",
+            restrictive_count,
+            license_info.len()
+        )
+    };
+
     output.push_str(&summary);
 
     log(
         LogLevel::Info,
         &format!(
-            "Added summary: {} restrictive out of {}",
+            "Added summary: {} restrictive and {} incompatible out of {}",
             restrictive_count,
+            incompatible_count,
             license_info.len()
         ),
     );
@@ -440,7 +679,11 @@ fn output_github_format(license_info: &[LicenseInfo], output_path: Option<&str>)
     }
 }
 
-fn output_jenkins_format(license_info: &[LicenseInfo], output_path: Option<&str>) {
+fn output_jenkins_format(
+    license_info: &[LicenseInfo],
+    output_path: Option<&str>,
+    project_license: Option<&str>,
+) {
     log(
         LogLevel::Info,
         "Generating Jenkins compatible output (JUnit XML)",
@@ -449,6 +692,16 @@ fn output_jenkins_format(license_info: &[LicenseInfo], output_path: Option<&str>
     // Jenkins compatible output (JUnit XML format)
     let mut test_cases = Vec::new();
 
+    // Add project license info if available
+    if let Some(license) = project_license {
+        test_cases.push(format!(
+            r#"    <testcase classname="feluda.project" name="project_license" time="0">
+        <system-out>Project is using {} license</system-out>
+    </testcase>"#,
+            license
+        ));
+    }
+
     for info in license_info {
         let test_case_name = format!("{}-{}", info.name(), info.version());
         log(
@@ -456,14 +709,14 @@ fn output_jenkins_format(license_info: &[LicenseInfo], output_path: Option<&str>
             &format!("Processing test case: {}", test_case_name),
         );
 
+        let mut failures = Vec::new();
+
+        // Check for restrictive license
         if *info.is_restrictive() {
-            test_cases.push(format!(
-                r#"    <testcase classname="feluda.licenses" name="{}" time="0">
-        <failure message="Restrictive license found" type="restrictive">
+            failures.push(format!(
+                r#"<failure message="Restrictive license found" type="restrictive">
             Dependency '{}@{}' has restrictive license: {}
-        </failure>
-    </testcase>"#,
-                test_case_name,
+        </failure>"#,
                 info.name(),
                 info.version(),
                 info.get_license()
@@ -471,23 +724,68 @@ fn output_jenkins_format(license_info: &[LicenseInfo], output_path: Option<&str>
 
             log(
                 LogLevel::Info,
-                &format!("Added failing test case for: {}", info.name()),
+                &format!(
+                    "Added failing test case for restrictive license: {}",
+                    info.name()
+                ),
             );
-        } else {
+        }
+
+        // Check for incompatible license if project license is available
+        if project_license.is_some() && info.compatibility == LicenseCompatibility::Incompatible {
+            failures.push(format!(
+                r#"<failure message="Incompatible license found" type="incompatible">
+            Dependency '{}@{}' has license {} which may be incompatible with project license {}
+        </failure>"#,
+                info.name(),
+                info.version(),
+                info.get_license(),
+                project_license.unwrap()
+            ));
+
+            log(
+                LogLevel::Info,
+                &format!(
+                    "Added failing test case for incompatible license: {}",
+                    info.name()
+                ),
+            );
+        }
+
+        if failures.is_empty() {
             test_cases.push(format!(
                 r#"    <testcase classname="feluda.licenses" name="{}" time="0" />"#,
                 test_case_name
+            ));
+        } else {
+            test_cases.push(format!(
+                r#"    <testcase classname="feluda.licenses" name="{}" time="0">
+{}
+    </testcase>"#,
+                test_case_name,
+                failures.join("\n")
             ));
         }
     }
 
     let restrictive_count = license_info.iter().filter(|i| *i.is_restrictive()).count();
+    let incompatible_count = if project_license.is_some() {
+        license_info
+            .iter()
+            .filter(|i| i.compatibility == LicenseCompatibility::Incompatible)
+            .count()
+    } else {
+        0
+    };
+
+    let failure_count = restrictive_count + incompatible_count;
+
     log(
         LogLevel::Info,
         &format!(
             "Total test cases: {}, failures: {}",
             license_info.len(),
-            restrictive_count
+            failure_count
         ),
     );
 
@@ -498,8 +796,8 @@ fn output_jenkins_format(license_info: &[LicenseInfo], output_path: Option<&str>
 {}
   </testsuite>
 </testsuites>"#,
-        license_info.len(),
-        restrictive_count,
+        license_info.len() + (if project_license.is_some() { 1 } else { 0 }),
+        failure_count,
         test_cases.join("\n")
     );
 
@@ -530,6 +828,7 @@ fn output_jenkins_format(license_info: &[LicenseInfo], output_path: Option<&str>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::licenses::LicenseCompatibility;
     use tempfile::TempDir;
 
     fn setup() -> TempDir {
@@ -543,12 +842,47 @@ mod tests {
                 version: "1.0.0".to_string(),
                 license: Some("MIT".to_string()),
                 is_restrictive: false,
+                compatibility: LicenseCompatibility::Compatible,
             },
             LicenseInfo {
                 name: "crate2".to_string(),
                 version: "2.0.0".to_string(),
-                license: Some("GPL".to_string()),
+                license: Some("GPL-3.0".to_string()),
                 is_restrictive: true,
+                compatibility: LicenseCompatibility::Incompatible,
+            },
+            LicenseInfo {
+                name: "crate3".to_string(),
+                version: "3.0.0".to_string(),
+                license: Some("Apache-2.0".to_string()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Compatible,
+            },
+            LicenseInfo {
+                name: "crate4".to_string(),
+                version: "4.0.0".to_string(),
+                license: Some("Unknown".to_string()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Unknown,
+            },
+        ]
+    }
+
+    fn get_test_data_with_unknown_compatibility() -> Vec<LicenseInfo> {
+        vec![
+            LicenseInfo {
+                name: "crate1".to_string(),
+                version: "1.0.0".to_string(),
+                license: Some("MIT".to_string()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Unknown,
+            },
+            LicenseInfo {
+                name: "crate2".to_string(),
+                version: "2.0.0".to_string(),
+                license: Some("GPL-3.0".to_string()),
+                is_restrictive: true,
+                compatibility: LicenseCompatibility::Unknown,
             },
         ]
     }
@@ -556,36 +890,75 @@ mod tests {
     #[test]
     fn test_generate_report_empty_data() {
         let data = vec![];
-        let result = generate_report(data, false, false, false, None, None);
-        assert!(!result);
+        let result = generate_report(data, false, false, false, None, None, None);
+        assert_eq!(result, (false, false)); // No restrictive or incompatible licenses
     }
 
     #[test]
     fn test_generate_report_non_strict() {
         let data = get_test_data();
-        let result = generate_report(data, false, false, false, None, None);
-        assert!(result);
+        let result = generate_report(
+            data,
+            false,
+            false,
+            false,
+            None,
+            None,
+            Some("MIT".to_string()),
+        );
+        assert_eq!(result, (true, true)); // Has both restrictive and incompatible licenses
     }
 
     #[test]
     fn test_generate_report_strict() {
         let data = get_test_data();
-        let result = generate_report(data, false, false, true, None, None);
-        assert!(result);
+        let result = generate_report(
+            data,
+            false,
+            false,
+            true,
+            None,
+            None,
+            Some("MIT".to_string()),
+        );
+        assert_eq!(result, (true, true)); // In strict mode, still has both restrictive and incompatible
     }
 
     #[test]
     fn test_generate_report_json() {
         let data = get_test_data();
-        let result = generate_report(data, true, false, false, None, None);
-        assert!(result);
+        let result = generate_report(
+            data,
+            true,
+            false,
+            false,
+            None,
+            None,
+            Some("MIT".to_string()),
+        );
+        assert_eq!(result, (true, true));
     }
 
     #[test]
     fn test_generate_report_verbose() {
         let data = get_test_data();
-        let result = generate_report(data, false, true, false, None, None);
-        assert!(result);
+        let result = generate_report(
+            data,
+            false,
+            true,
+            false,
+            None,
+            None,
+            Some("MIT".to_string()),
+        );
+        assert_eq!(result, (true, true));
+    }
+
+    #[test]
+    fn test_generate_report_no_project_license() {
+        let data = get_test_data_with_unknown_compatibility();
+        let result = generate_report(data, false, false, false, None, None, None);
+        assert_eq!(result, (true, false)); // Has restrictive but no incompatible since no project license
     }
 
     #[test]
@@ -601,8 +974,9 @@ mod tests {
             false,
             Some(CiFormat::Github),
             Some(output_path.to_str().unwrap().to_string()),
+            Some("MIT".to_string()),
         );
-        assert!(result);
+        assert_eq!(result, (true, true));
 
         let content = match fs::read_to_string(&output_path) {
             Ok(content) => content,
@@ -612,6 +986,8 @@ mod tests {
         };
 
         assert!(content.contains("::warning title=Restrictive License::"));
+        assert!(content.contains("::error title=Incompatible License::"));
+        assert!(content.contains("::notice title=Project License::"));
         assert!(content.contains("::notice title=License Check Summary::"));
     }
 
@@ -628,8 +1004,9 @@ mod tests {
             false,
             Some(CiFormat::Jenkins),
             Some(output_path.to_str().unwrap().to_string()),
+            Some("MIT".to_string()),
         );
-        assert!(result);
+        assert_eq!(result, (true, true));
 
         let content = match fs::read_to_string(&output_path) {
             Ok(content) => content,
@@ -641,28 +1018,114 @@ mod tests {
         assert!(content.contains("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
         assert!(content.contains("<testsuites>"));
         assert!(content.contains("<failure message=\"Restrictive license found\""));
+        assert!(content.contains("<failure message=\"Incompatible license found\""));
+        assert!(content.contains("Project is using MIT license"));
+    }
+
+    #[test]
+    fn test_jenkins_output_format_no_project_license() {
+        let data = get_test_data_with_unknown_compatibility();
+        let temp_dir = setup();
+        let output_path = temp_dir.path().join("jenkins_output.xml");
+
+        let result = generate_report(
+            data,
+            false,
+            false,
+            false,
+            Some(CiFormat::Jenkins),
+            Some(output_path.to_str().unwrap().to_string()),
+            None,
+        );
+        assert_eq!(result, (true, false)); // Has restrictive but no incompatible
+
+        let content = match fs::read_to_string(&output_path) {
+            Ok(content) => content,
+            Err(err) => {
+                panic!("Failed to read output file: {}", err);
+            }
+        };
+
+        assert!(content.contains("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
+        assert!(content.contains("<testsuites>"));
+        assert!(content.contains("<failure message=\"Restrictive license found\""));
+        assert!(!content.contains("<failure message=\"Incompatible license found\""));
+        assert!(!content.contains("Project is using"));
     }
 
     #[test]
     fn test_table_formatter() {
-        let headers = vec!["Name".to_string(), "Value".to_string()];
+        let headers = vec![
+            "Name".to_string(),
+            "Value".to_string(),
+            "Compatibility".to_string(),
+        ];
         let mut formatter = TableFormatter::new(headers);
 
-        let row1 = vec!["key1".to_string(), "value1".to_string()];
-        let row2 = vec!["key2".to_string(), "value2".to_string()];
+        let row1 = vec![
+            "key1".to_string(),
+            "value1".to_string(),
+            "Compatible".to_string(),
+        ];
+        let row2 = vec![
+            "key2".to_string(),
+            "value2".to_string(),
+            "Incompatible".to_string(),
+        ];
+        let row3 = vec![
+            "key3".to_string(),
+            "value3".to_string(),
+            "Unknown".to_string(),
+        ];
 
         formatter.add_row(&row1);
         formatter.add_row(&row2);
+        formatter.add_row(&row3);
 
         let header = formatter.render_header();
-        let row1_str = formatter.render_row(&row1, false);
-        let row2_str = formatter.render_row(&row2, true);
+        let row1_str = formatter.render_row(&row1, true).green();
+        let row2_str = formatter.render_row(&row2, false).red();
+        let row3_str = formatter.render_row(&row3, false).yellow();
         let footer = formatter.render_footer();
 
         assert!(header.contains("Name"));
         assert!(header.contains("Value"));
+        assert!(header.contains("Compatibility"));
         assert!(row1_str.contains("key1"));
         assert!(row2_str.contains("key2"));
+        assert!(row3_str.contains("key3"));
         assert!(footer.contains("└"));
+    }
+
+    #[test]
+    fn test_print_incompatible_licenses_table() {
+        // Create test data
+        let test_data = get_test_data();
+
+        // Create a new Vec that owns the filtered items, rather than borrowing from a temporary
+        let incompatible_licenses: Vec<&LicenseInfo> = test_data
+            .iter()
+            .filter(|info| info.compatibility == LicenseCompatibility::Incompatible)
+            .collect();
+
+        assert!(!incompatible_licenses.is_empty());
+        print_incompatible_licenses_table(&incompatible_licenses, "MIT");
+        // If no panic, test passes
+    }
+
+    #[test]
+    fn test_print_summary_footer_with_compatibility() {
+        // This is primarily a visual test
+        let license_info = get_test_data();
+        print_summary_footer(&license_info, Some("MIT"));
+        // If no panic, test passes
+    }
+
+    #[test]
+    fn test_print_summary_footer_without_compatibility() {
+        // This is primarily a visual test
+        let license_info = get_test_data_with_unknown_compatibility();
+        print_summary_footer(&license_info, None);
+        // If no panic, test passes
     }
 }

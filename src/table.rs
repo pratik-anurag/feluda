@@ -1,5 +1,5 @@
 use crate::debug::{log, log_debug, LogLevel};
-use crate::licenses::LicenseInfo;
+use crate::licenses::{LicenseCompatibility, LicenseInfo};
 use color_eyre::Result;
 use ratatui::{
     crossterm::event::{self, Event, KeyCode, KeyEventKind},
@@ -33,6 +33,9 @@ struct TableColors {
     normal_row_color: Color,
     alt_row_color: Color,
     footer_border_color: Color,
+    compatible_color: Color,
+    incompatible_color: Color,
+    unknown_color: Color,
 }
 
 impl TableColors {
@@ -48,6 +51,9 @@ impl TableColors {
             normal_row_color: tailwind::SLATE.c950,
             alt_row_color: tailwind::SLATE.c900,
             footer_border_color: color.c400,
+            compatible_color: tailwind::GREEN.c500,
+            incompatible_color: tailwind::RED.c500,
+            unknown_color: tailwind::YELLOW.c500,
         }
     }
 }
@@ -55,15 +61,20 @@ impl TableColors {
 pub struct App {
     state: TableState,
     items: Vec<LicenseInfo>,
-    longest_item_lens: (u16, u16, u16, u16),
+    longest_item_lens: (u16, u16, u16, u16, u16),
     scroll_state: ScrollbarState,
     colors: TableColors,
+    project_license: Option<String>,
 }
 
 impl App {
-    pub fn new(license_data: Vec<LicenseInfo>) -> Self {
+    pub fn new(license_data: Vec<LicenseInfo>, project_license: Option<String>) -> Self {
         log(LogLevel::Info, "Initializing TUI application");
         log_debug("License data for TUI", &license_data);
+        log(
+            LogLevel::Info,
+            &format!("Project license: {:?}", project_license),
+        );
 
         let data_vec = license_data;
         Self {
@@ -72,6 +83,7 @@ impl App {
             scroll_state: ScrollbarState::new((data_vec.len().saturating_sub(1)) * ITEM_HEIGHT),
             colors: TableColors::new(&TABLE_COLOUR),
             items: data_vec,
+            project_license,
         }
     }
 
@@ -172,7 +184,8 @@ impl App {
             .add_modifier(Modifier::REVERSED)
             .fg(self.colors.selected_cell_style_fg);
 
-        let header = ["Name", "Version", "License", "Restrictive"]
+        // Add Compatibility column to header
+        let header = ["Name", "Version", "License", "Restrictive", "Compatibility"]
             .into_iter()
             .map(Cell::from)
             .collect::<Row>()
@@ -184,17 +197,31 @@ impl App {
                 0 => self.colors.normal_row_color,
                 _ => self.colors.alt_row_color,
             };
-            let item = [
-                &data.name,
-                &data.version,
-                &data.get_license(),
-                &data.is_restrictive().to_string(),
-            ];
-            item.into_iter()
-                .map(|content| Cell::from(Text::from(format!("\n{content}\n"))))
-                .collect::<Row>()
-                .style(Style::new().fg(self.colors.row_fg).bg(color))
-                .height(4)
+
+            // Style compatibility text based on its value
+            let compatibility_text = match data.compatibility {
+                LicenseCompatibility::Compatible => {
+                    Text::from(format!("\n{}\n", "Compatible")).fg(self.colors.compatible_color)
+                }
+                LicenseCompatibility::Incompatible => {
+                    Text::from(format!("\n{}\n", "Incompatible")).fg(self.colors.incompatible_color)
+                }
+                LicenseCompatibility::Unknown => {
+                    Text::from(format!("\n{}\n", "Unknown")).fg(self.colors.unknown_color)
+                }
+            };
+
+            let row = Row::new([
+                Cell::from(Text::from(format!("\n{}\n", data.name))),
+                Cell::from(Text::from(format!("\n{}\n", data.version))),
+                Cell::from(Text::from(format!("\n{}\n", data.get_license()))),
+                Cell::from(Text::from(format!("\n{}\n", data.is_restrictive()))),
+                Cell::from(compatibility_text),
+            ])
+            .style(Style::new().fg(self.colors.row_fg).bg(color))
+            .height(4);
+
+            row
         });
 
         let bar = " █ ";
@@ -205,7 +232,8 @@ impl App {
                 Constraint::Length(self.longest_item_lens.0 + 1),
                 Constraint::Min(self.longest_item_lens.1 + 1),
                 Constraint::Min(self.longest_item_lens.2),
-                Constraint::Min(self.longest_item_lens.2),
+                Constraint::Min(self.longest_item_lens.3),
+                Constraint::Min(self.longest_item_lens.4), // Add constraint for Compatibility column
             ],
         )
         .header(header)
@@ -244,7 +272,14 @@ impl App {
     }
 
     fn render_footer(&self, frame: &mut Frame, area: Rect) {
-        let info_footer = Paragraph::new(Text::from_iter(INFO_TEXT))
+        // Add project license information to footer if available
+        let footer_text = if let Some(ref license) = self.project_license {
+            format!("Project License: {} | {}", license, INFO_TEXT[0])
+        } else {
+            format!("Project License: Unknown | {}", INFO_TEXT[0])
+        };
+
+        let info_footer = Paragraph::new(Text::from(footer_text))
             .style(
                 Style::new()
                     .fg(self.colors.row_fg)
@@ -260,7 +295,7 @@ impl App {
     }
 }
 
-fn constraint_len_calculator(items: &[LicenseInfo]) -> (u16, u16, u16, u16) {
+fn constraint_len_calculator(items: &[LicenseInfo]) -> (u16, u16, u16, u16, u16) {
     log(LogLevel::Info, "Calculating column widths for table");
 
     let name_len = items
@@ -286,12 +321,20 @@ fn constraint_len_calculator(items: &[LicenseInfo]) -> (u16, u16, u16, u16) {
 
     let restricted_len = "true".width().max("false".width());
 
+    // Calculate width for the new Compatibility column
+    let compatibility_len = ["Compatible", "Incompatible", "Unknown"]
+        .iter()
+        .map(|s| s.width())
+        .max()
+        .unwrap_or(0);
+
     #[allow(clippy::cast_possible_truncation)]
     let result = (
         name_len as u16,
         version_len as u16,
         license_len as u16,
         restricted_len as u16,
+        compatibility_len as u16,
     );
 
     log(

@@ -69,6 +69,18 @@ pub struct Cli {
     /// Fail with non-zero exit code when restrictive licenses are found
     #[arg(long)]
     pub fail_on_restrictive: bool,
+
+    /// Show only incompatible dependencies
+    #[arg(long)]
+    pub incompatible: bool,
+
+    /// Fail with non-zero exit code when incompatible licenses are found
+    #[arg(long)]
+    pub fail_on_incompatible: bool,
+
+    /// Specify the project license (overrides auto-detection)
+    #[arg(long)]
+    pub project_license: Option<String>,
 }
 
 fn format_before_help() -> String {
