@@ -335,3 +335,5 @@ Feluda is licensed under the [MIT License](./LICENSE).
 ![felu](https://github.com/user-attachments/assets/5f2bf6c4-3b70-4d2f-9990-c4005f56c5a9)
 
 _Happy coding with Feluda!_ 🚀
+
+![Scanned with Feluda](https://img.shields.io/badge/scanned_with_feluda-failing-red)
