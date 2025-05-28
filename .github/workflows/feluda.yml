@@ -4,7 +4,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  check-licenses:
+  license-scan:
+    outputs:
+      scan-status: ${{ steps.set-status.outputs.scan-status }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -21,4 +23,40 @@ jobs:
         run: cargo install feluda
 
       - name: Check licenses
+        id: feluda
         run: feluda --ci-format github --fail-on-restrictive
+        continue-on-error: true
+
+      - name: Set scan status
+        id: set-status
+        if: always()
+        run: echo "scan-status=${{ steps.feluda.outcome }}" >> $GITHUB_OUTPUT
+
+  update-badge:
+    needs: license-scan
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Update README badge
+        run: |
+          if [ "${{ needs.license-scan.outputs.scan-status }}" = "success" ]; then
+            BADGE="![Scanned with Feluda](https://img.shields.io/badge/scanned_with_feluda-passing-brightgreen)"
+          else
+            BADGE="![Scanned with Feluda](https://img.shields.io/badge/scanned_with_feluda-failing-red)"
+          fi
+          if grep -q "scanned_with_feluda" README.md; then
+            sed -i "s|!\[Scanned with Feluda\](.*)|$BADGE|" README.md
+          else
+            echo -e "\n$BADGE" >> README.md
+          fi
+
+      - name: Commit README update
+        uses: EndBug/add-and-commit@v9
+        with:
+          author_name: github-actions[bot]
+          author_email: github-actions[bot]@users.noreply.github.com
+          message: "ci: update Feluda scan badge based on license scan result"
+          add: "README.md"
