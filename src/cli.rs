@@ -1,4 +1,4 @@
-use clap::{ArgGroup, Parser, ValueEnum};
+use clap::{ArgGroup, Parser, Subcommand, ValueEnum};
 use colored::*;
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,6 +18,25 @@ pub enum CiFormat {
     Jenkins,
 }
 
+/// CLI Commands
+#[derive(Subcommand, Debug, Clone)]
+pub enum Commands {
+    /// Generate license-related files
+    Generate {
+        /// Path to the local project directory
+        #[arg(short, long, default_value = "./")]
+        path: String,
+
+        /// Specify the language to scan
+        #[arg(long, short)]
+        language: Option<String>,
+
+        /// Specify the project license explicitly
+        #[arg(long)]
+        project_license: Option<String>,
+    },
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version)]
 #[command(about = env!("CARGO_PKG_DESCRIPTION"))]
@@ -27,6 +46,13 @@ pub enum CiFormat {
 #[command(group(ArgGroup::new("output").args(["json"])))]
 #[command(before_help = format_before_help())]
 pub struct Cli {
+    /// Enable debug mode
+    #[arg(long, short, global = true)]
+    pub debug: bool,
+
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+
     /// Path to the local project directory
     #[arg(short, long, default_value = "./")]
     pub path: String,
@@ -57,10 +83,6 @@ pub struct Cli {
     #[arg(long, short)]
     pub gui: bool,
 
-    /// Enable debug mode
-    #[arg(long, short)]
-    pub debug: bool,
-
     /// Specify the language to scan
     #[arg(long, short)]
     pub language: Option<String>,
@@ -88,6 +110,28 @@ pub struct Cli {
     /// Specify the project license (overrides auto-detection)
     #[arg(long)]
     pub project_license: Option<String>,
+}
+
+impl Cli {
+    /// Get the command arguments
+    pub fn get_command_args(&self) -> Commands {
+        match &self.command {
+            Some(cmd) => cmd.clone(),
+            None => {
+                // No subcommand provided - default to license analysis
+                Commands::Generate {
+                    path: "".to_string(),
+                    language: None,
+                    project_license: None,
+                }
+            }
+        }
+    }
+
+    /// Check if this is the default behavior
+    pub fn is_default_command(&self) -> bool {
+        self.command.is_none()
+    }
 }
 
 fn format_before_help() -> String {
@@ -287,5 +331,64 @@ mod tests {
         });
 
         assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn test_cli_default_behavior() {
+        // Test that CLI without subcommands uses default behavior
+        let cli = Cli {
+            debug: false,
+            command: None,
+            path: "./test".to_string(),
+            json: true,
+            yaml: false,
+            verbose: false,
+            strict: false,
+            gui: false,
+            language: Some("rust".to_string()),
+            ci_format: None,
+            output_file: None,
+            fail_on_restrictive: false,
+            incompatible: false,
+            fail_on_incompatible: false,
+            project_license: Some("MIT".to_string()),
+        };
+
+        assert!(cli.is_default_command());
+    }
+
+    #[test]
+    fn test_cli_with_generate_command() {
+        let cli = Cli {
+            debug: false,
+            command: Some(Commands::Generate {
+                path: "./test".to_string(),
+                language: Some("node".to_string()),
+                project_license: Some("Apache-2.0".to_string()),
+            }),
+            path: "./ignored".to_string(), // This should be ignored when command is present
+            json: false,
+            yaml: false,
+            verbose: false,
+            strict: false,
+            gui: false,
+            language: None,
+            ci_format: None,
+            output_file: None,
+            fail_on_restrictive: false,
+            incompatible: false,
+            fail_on_incompatible: false,
+            project_license: None,
+        };
+
+        assert!(!cli.is_default_command());
+        
+        match cli.get_command_args() {
+            Commands::Generate { path, language, project_license } => {
+                assert_eq!(path, "./test");
+                assert_eq!(language, Some("node".to_string()));
+                assert_eq!(project_license, Some("Apache-2.0".to_string()));
+            }
+        }
     }
 }

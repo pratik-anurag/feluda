@@ -1,20 +1,40 @@
 mod cli;
 mod config;
 mod debug;
+mod generate;
 mod licenses;
 mod parser;
 mod reporter;
 mod table;
 
 use clap::Parser;
-use cli::{print_version_info, Cli};
+use cli::{print_version_info, Cli, Commands};
 use debug::{log, log_debug, set_debug_mode, FeludaError, FeludaResult, LogLevel};
+use generate::handle_generate_command;
 use licenses::{detect_project_license, is_license_compatible, LicenseCompatibility};
 use parser::parse_root;
 use reporter::{generate_report, ReportConfig};
 use std::env;
 use std::process;
 use table::App;
+
+/// Configuration for the check command
+#[derive(Debug)]
+struct CheckConfig {
+    path: String,
+    json: bool,
+    yaml: bool,
+    verbose: bool,
+    strict: bool,
+    gui: bool,
+    language: Option<String>,
+    ci_format: Option<cli::CiFormat>,
+    output_file: Option<String>,
+    fail_on_restrictive: bool,
+    incompatible: bool,
+    fail_on_incompatible: bool,
+    project_license: Option<String>,
+}
 
 fn main() {
     // Check if --version or -V is passed alone
@@ -46,14 +66,54 @@ fn run() -> FeludaResult<()> {
         &format!("Starting Feluda with args: {:?}", args),
     );
 
+    // Handle the command based on whether a subcommand was provided
+    if args.is_default_command() {
+        // Default behavior: license analysis
+        let config = CheckConfig {
+            path: args.path,
+            json: args.json,
+            yaml: args.yaml,
+            verbose: args.verbose,
+            strict: args.strict,
+            gui: args.gui,
+            language: args.language,
+            ci_format: args.ci_format,
+            output_file: args.output_file,
+            fail_on_restrictive: args.fail_on_restrictive,
+            incompatible: args.incompatible,
+            fail_on_incompatible: args.fail_on_incompatible,
+            project_license: args.project_license,
+        };
+        handle_check_command(config)
+    } else {
+        // Handle subcommands
+        let command = args.get_command_args();
+        match command {
+            Commands::Generate { 
+                path,
+                language,
+                project_license,
+            } => {
+                handle_generate_command(path, language, project_license);
+                Ok(())
+            }
+        }
+    }
+}
+
+fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
+    log(
+        LogLevel::Info,
+        &format!("Executing check command with path: {}", config.path),
+    );
+
     // Parse project dependencies
     log(
         LogLevel::Info,
-        &format!("Parsing dependencies in path: {}", args.path),
+        &format!("Parsing dependencies in path: {}", config.path),
     );
 
-    // Get project license from CLI args if provided
-    let mut project_license = args.project_license.clone();
+    let mut project_license = config.project_license;
 
     // If no project license is provided via CLI, try to detect it
     if project_license.is_none() {
@@ -61,7 +121,7 @@ fn run() -> FeludaResult<()> {
             LogLevel::Info,
             "No project license specified, attempting to detect",
         );
-        match detect_project_license(&args.path) {
+        match detect_project_license(&config.path) {
             Ok(Some(detected)) => {
                 log(
                     LogLevel::Info,
@@ -90,7 +150,7 @@ fn run() -> FeludaResult<()> {
     }
 
     // Parse and analyze dependencies
-    let mut analyzed_data = parse_root(&args.path, args.language.as_deref())
+    let mut analyzed_data = parse_root(&config.path, config.language.as_deref())
         .map_err(|e| FeludaError::Parser(format!("Failed to parse dependencies: {}", e)))?;
 
     log_debug("Analyzed dependencies", &analyzed_data);
@@ -143,7 +203,7 @@ fn run() -> FeludaResult<()> {
     // Filter for restrictive if in strict mode
     let original_count = analyzed_data.len();
 
-    if args.strict {
+    if config.strict {
         log(
             LogLevel::Info,
             "Strict mode enabled, filtering for restrictive licenses",
@@ -161,7 +221,7 @@ fn run() -> FeludaResult<()> {
     }
 
     // Filter for incompatible if requested
-    if args.incompatible {
+    if config.incompatible {
         if project_license.is_some() {
             log(
                 LogLevel::Info,
@@ -186,7 +246,7 @@ fn run() -> FeludaResult<()> {
     }
 
     // Either run the GUI or generate a report
-    if args.gui {
+    if config.gui {
         log(LogLevel::Info, "Starting TUI mode");
 
         // Initialize the terminal
@@ -208,18 +268,18 @@ fn run() -> FeludaResult<()> {
         log(LogLevel::Info, "Generating dependency report");
 
         // Create ReportConfig from CLI arguments
-        let config = ReportConfig::new(
-            args.json,
-            args.yaml,
-            args.verbose,
-            args.strict,
-            args.ci_format,
-            args.output_file,
+        let report_config = ReportConfig::new(
+            config.json,
+            config.yaml,
+            config.verbose,
+            config.strict,
+            config.ci_format,
+            config.output_file,
             project_license,
         );
 
         // Generate a report based on the analyzed data
-        let (has_restrictive, has_incompatible) = generate_report(analyzed_data, config);
+        let (has_restrictive, has_incompatible) = generate_report(analyzed_data, report_config);
 
         log(
             LogLevel::Info,
@@ -229,9 +289,8 @@ fn run() -> FeludaResult<()> {
             ),
         );
 
-        // Exit with non-zero code if requested and issues found
-        if (args.fail_on_restrictive && has_restrictive)
-            || (args.fail_on_incompatible && has_incompatible)
+        if (config.fail_on_restrictive && has_restrictive)
+            || (config.fail_on_incompatible && has_incompatible)
         {
             log(
                 LogLevel::Warn,
@@ -241,6 +300,6 @@ fn run() -> FeludaResult<()> {
         }
     }
 
-    log(LogLevel::Info, "Feluda completed successfully");
+    log(LogLevel::Info, "Check command completed successfully");
     Ok(())
 }

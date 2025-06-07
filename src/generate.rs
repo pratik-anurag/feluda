@@ -1,0 +1,1047 @@
+use crate::debug::{log, log_debug, LogLevel};
+use crate::licenses::LicenseInfo;
+use colored::*;
+use std::fs;
+use std::io::{self, Write};
+use std::io::{stdin, Read};
+#[cfg(unix)]
+use std::os::unix::io::AsRawFd;
+use std::path::Path;
+
+/// Key input handling for cross-platform compatibility
+#[derive(Debug, PartialEq)]
+enum KeyInput {
+    Up,
+    Down,
+    Enter,
+    Escape,
+    Char(char),
+    Unknown,
+}
+
+/// Enable raw terminal mode (For Unix)
+#[cfg(unix)]
+fn enable_raw_mode() -> std::io::Result<()> {
+    let fd = stdin().as_raw_fd();
+    let mut termios = unsafe { std::mem::zeroed() };
+
+    unsafe {
+        if libc::tcgetattr(fd, &mut termios) != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+
+        termios.c_lflag &= !(libc::ICANON | libc::ECHO);
+        termios.c_cc[libc::VMIN] = 1;
+        termios.c_cc[libc::VTIME] = 0;
+
+        if libc::tcsetattr(fd, libc::TCSANOW, &termios) != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+
+    Ok(())
+}
+
+/// Disable raw terminal mode (For Unix)
+#[cfg(unix)]
+fn disable_raw_mode() -> std::io::Result<()> {
+    let fd = stdin().as_raw_fd();
+    let mut termios = unsafe { std::mem::zeroed() };
+
+    unsafe {
+        if libc::tcgetattr(fd, &mut termios) != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+
+        termios.c_lflag |= libc::ICANON | libc::ECHO;
+
+        if libc::tcsetattr(fd, libc::TCSANOW, &termios) != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+
+    Ok(())
+}
+
+/// Windows raw mode
+#[cfg(windows)]
+fn enable_raw_mode() -> std::io::Result<()> {
+    // TODO: Use Windows Console API
+    Ok(())
+}
+
+/// Disable raw mode for Windows
+#[cfg(windows)]
+fn disable_raw_mode() -> std::io::Result<()> {
+    // TODO: Pending implementation
+    Ok(())
+}
+
+/// Read a key press
+fn read_key() -> std::io::Result<KeyInput> {
+    let mut buffer = [0; 4];
+    let mut stdin = stdin();
+
+    stdin.read_exact(&mut buffer[0..1])?;
+
+    match buffer[0] {
+        // Enter key
+        b'\r' | b'\n' => Ok(KeyInput::Enter),
+
+        // Escape key or escape sequence
+        27 => {
+            let mut temp_buffer = [0; 2];
+            match stdin.read(&mut temp_buffer) {
+                Ok(2) if temp_buffer[0] == b'[' => {
+                    // ANSI escape sequence
+                    match temp_buffer[1] {
+                        b'A' => Ok(KeyInput::Up),   // Up arrow
+                        b'B' => Ok(KeyInput::Down), // Down arrow
+                        _ => Ok(KeyInput::Escape),
+                    }
+                }
+                _ => Ok(KeyInput::Escape),
+            }
+        }
+
+        // Regular characters
+        b'q' | b'Q' => Ok(KeyInput::Escape), // q for quit
+        b'k' | b'K' => Ok(KeyInput::Up),     // k for up (vim)
+        b'j' | b'J' => Ok(KeyInput::Down),   // j for down (vim)
+
+        // Printable ASCII
+        c if (32..=126).contains(&c) => Ok(KeyInput::Char(c as char)),
+
+        _ => Ok(KeyInput::Unknown),
+    }
+}
+
+/// Clear screen and move cursor to top
+fn clear_screen() {
+    print!("\x1B[2J\x1B[H");
+    io::stdout().flush().unwrap();
+}
+
+/// Hide the cursor
+fn hide_cursor() {
+    print!("\x1B[?25l");
+    io::stdout().flush().unwrap();
+}
+
+/// Show the cursor
+fn show_cursor() {
+    print!("\x1B[?25h");
+    io::stdout().flush().unwrap();
+}
+
+/// Generate options
+#[derive(Debug, Clone, Copy)]
+pub enum GenerateOption {
+    Notice,
+    ThirdPartyLicenses,
+}
+
+impl GenerateOption {
+    /// Get the display name for the option
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            GenerateOption::Notice => "NOTICE file",
+            GenerateOption::ThirdPartyLicenses => "THIRD_PARTY_LICENSES file",
+        }
+    }
+
+    /// Get the filename
+    pub fn filename(&self) -> &'static str {
+        match self {
+            GenerateOption::Notice => "NOTICE",
+            GenerateOption::ThirdPartyLicenses => "THIRD_PARTY_LICENSES",
+        }
+    }
+
+    /// Get the file extension
+    pub fn extension(&self) -> &'static str {
+        match self {
+            GenerateOption::Notice => "",
+            GenerateOption::ThirdPartyLicenses => ".md",
+        }
+    }
+
+    /// Full filename with extension
+    pub fn full_filename(&self) -> String {
+        format!("{}{}", self.filename(), self.extension())
+    }
+}
+
+/// Check if a file exists for the given option
+pub fn file_exists(option: GenerateOption, path: &str) -> bool {
+    let file_path = Path::new(path).join(option.full_filename());
+    let exists = file_path.exists();
+
+    log(
+        LogLevel::Info,
+        &format!(
+            "Checking if {} exists at {}: {}",
+            option.full_filename(),
+            file_path.display(),
+            exists
+        ),
+    );
+
+    exists
+}
+
+/// Display interactive menu with real arrow key navigation
+pub fn show_interactive_menu(path: &str) -> Option<GenerateOption> {
+    let options = [GenerateOption::Notice, GenerateOption::ThirdPartyLicenses];
+    let mut selected_index = 0;
+    let raw_mode_available = enable_raw_mode().is_ok();
+
+    if raw_mode_available {
+        hide_cursor();
+    }
+
+    let cleanup = || {
+        if raw_mode_available {
+            show_cursor();
+            let _ = disable_raw_mode();
+        }
+    };
+
+    loop {
+        if raw_mode_available {
+            clear_screen();
+        } else {
+            for _ in 0..3 {
+                println!();
+            }
+        }
+
+        println!("{}", "📝 File Generation Options".bold().blue());
+        println!("{}", "─".repeat(50).blue());
+        println!();
+
+        for (index, option) in options.iter().enumerate() {
+            let action = if file_exists(*option, path) {
+                "Update".yellow()
+            } else {
+                "Generate".green()
+            };
+
+            let indicator = if index == selected_index {
+                "▶".bold().cyan()
+            } else {
+                " ".normal()
+            };
+
+            let line_content = format!("{}. {} {}", index + 1, action, option.display_name());
+
+            if index == selected_index {
+                println!("{} {}", indicator, line_content.bold().on_bright_black());
+            } else {
+                println!("{} {}", indicator, line_content);
+            }
+        }
+
+        let cancel_content = format!("0. {}", "Cancel".red());
+        if selected_index == options.len() {
+            println!(
+                "{} {}",
+                "▶".bold().cyan(),
+                cancel_content.bold().on_bright_black()
+            );
+        } else {
+            println!("  {}", cancel_content);
+        }
+
+        println!();
+        if raw_mode_available {
+            println!(
+                "{}",
+                "Use ↑/↓ arrows to navigate, Enter to select, q/Esc to cancel".dimmed()
+            );
+        } else {
+            println!("{}", "Type 1, 2, or 0 to select, or q to cancel:".dimmed());
+            print!("> ");
+            io::stdout().flush().unwrap();
+        }
+
+        // Read input
+        if raw_mode_available {
+            // key input
+            match read_key() {
+                Ok(KeyInput::Up) => {
+                    if selected_index > 0 {
+                        selected_index -= 1;
+                    } else {
+                        selected_index = options.len(); // to Cancel option
+                    }
+                }
+                Ok(KeyInput::Down) => {
+                    if selected_index < options.len() {
+                        selected_index += 1;
+                    } else {
+                        selected_index = 0; // to first option
+                    }
+                }
+                Ok(KeyInput::Enter) => {
+                    cleanup();
+                    if selected_index < options.len() {
+                        log(
+                            LogLevel::Info,
+                            &format!("User selected option: {:?}", options[selected_index]),
+                        );
+                        return Some(options[selected_index]);
+                    } else {
+                        println!("\n{}", "✋ Operation cancelled.".yellow());
+                        return None;
+                    }
+                }
+                Ok(KeyInput::Escape) => {
+                    cleanup();
+                    println!("\n{}", "✋ Operation cancelled.".yellow());
+                    return None;
+                }
+                Ok(KeyInput::Char('1')) => {
+                    cleanup();
+                    log(LogLevel::Info, "User selected option 1 (NOTICE)");
+                    return Some(GenerateOption::Notice);
+                }
+                Ok(KeyInput::Char('2')) => {
+                    cleanup();
+                    log(
+                        LogLevel::Info,
+                        "User selected option 2 (THIRD_PARTY_LICENSES)",
+                    );
+                    return Some(GenerateOption::ThirdPartyLicenses);
+                }
+                Ok(KeyInput::Char('0')) => {
+                    cleanup();
+                    println!("\n{}", "✋ Operation cancelled.".yellow());
+                    return None;
+                }
+                Ok(KeyInput::Char('h') | KeyInput::Char('?')) => {
+                    // Show help
+                    clear_screen();
+                    println!("\n{}", "📚 Help - Navigation Commands".bold().blue());
+                    println!("{}", "─".repeat(40).blue());
+                    println!("  {} Move selection up", "↑ Arrow or k".cyan());
+                    println!("  {} Move selection down", "↓ Arrow or j".cyan());
+                    println!("  {} Select current option", "Enter".green());
+                    println!("  {} Quick select options", "1, 2, 0".yellow());
+                    println!("  {} Cancel and exit", "q or Esc".red());
+                    println!("  {} Show this help", "h or ?".blue());
+                    println!("\nPress any key to continue...");
+                    let _ = read_key();
+                }
+                Ok(_) | Err(_) => {
+                    // Invalid key, continue loop
+                    continue;
+                }
+            }
+        } else {
+            // Fallback to line-based input
+            let mut input = String::new();
+            match io::stdin().read_line(&mut input) {
+                Ok(_) => {
+                    let choice = input.trim().to_lowercase();
+                    log(LogLevel::Info, &format!("User input: '{}'", choice));
+
+                    match choice.as_str() {
+                        "0" => {
+                            println!("{}", "✋ Operation cancelled.".yellow());
+                            return None;
+                        }
+                        "1" => {
+                            log(LogLevel::Info, "User selected option 1 (NOTICE)");
+                            return Some(GenerateOption::Notice);
+                        }
+                        "2" => {
+                            log(
+                                LogLevel::Info,
+                                "User selected option 2 (THIRD_PARTY_LICENSES)",
+                            );
+                            return Some(GenerateOption::ThirdPartyLicenses);
+                        }
+                        "q" | "quit" | "exit" => {
+                            println!("{}", "✋ Operation cancelled.".yellow());
+                            return None;
+                        }
+                        _ => {
+                            println!("{} Invalid input. Please use 1, 2, 0, or q.", "❌".red());
+                            println!("Press Enter to continue...");
+                            let mut _dummy = String::new();
+                            let _ = io::stdin().read_line(&mut _dummy);
+                        }
+                    }
+                }
+                Err(_) => {
+                    println!("{} Error reading input.", "❌".red());
+                    let mut _dummy = String::new();
+                    let _ = io::stdin().read_line(&mut _dummy);
+                }
+            }
+        }
+    }
+}
+
+/// Generate or update a NOTICE file
+pub fn generate_notice_file(license_data: &[LicenseInfo], path: &str) {
+    let file_path = Path::new(path).join(GenerateOption::Notice.full_filename());
+    let exists = file_exists(GenerateOption::Notice, path);
+
+    let action = if exists { "Updating" } else { "Generating" };
+
+    log(
+        LogLevel::Info,
+        &format!(
+            "{} NOTICE file at {} with {} dependencies",
+            action,
+            file_path.display(),
+            license_data.len()
+        ),
+    );
+
+    log_debug("License data for NOTICE file", &license_data);
+
+    println!(
+        "{} {} NOTICE file at {}...",
+        "📄".bold(),
+        action.green().bold(),
+        file_path.display().to_string().blue()
+    );
+
+    // Generate NOTICE content
+    let notice_content = generate_notice_content(license_data);
+
+    // Write to file
+    match fs::write(&file_path, notice_content) {
+        Ok(_) => {
+            println!(
+                "{} NOTICE file generated successfully!",
+                "✅".green().bold()
+            );
+            println!("   📍 Location: {}", file_path.display().to_string().blue());
+        }
+        Err(err) => {
+            println!("{} Failed to write NOTICE file: {}", "❌".red().bold(), err);
+            log(
+                LogLevel::Error,
+                &format!("Failed to write NOTICE file: {}", err),
+            );
+        }
+    }
+}
+
+/// Generate the content for a NOTICE file
+fn generate_notice_content(license_data: &[LicenseInfo]) -> String {
+    let mut content = String::new();
+
+    // Header
+    content.push_str("NOTICE\n");
+    content.push_str("======\n\n");
+    content.push_str("This project includes third-party software components that are subject to separate copyright notices and license terms.\n");
+    content.push_str("Your use of the source code for these components is subject to the terms and conditions of the following licenses.\n\n");
+
+    // Group dependencies by license
+    let mut license_groups: std::collections::HashMap<String, Vec<&LicenseInfo>> =
+        std::collections::HashMap::new();
+
+    for info in license_data {
+        let license_key = info.get_license();
+        license_groups.entry(license_key).or_default().push(info);
+    }
+
+    // Sort license groups
+    let mut sorted_licenses: Vec<_> = license_groups.iter().collect();
+    sorted_licenses.sort_by_key(|(license, _)| license.as_str());
+
+    for (license, dependencies) in sorted_licenses {
+        content.push_str(&format!("## {} Licensed Components\n\n", license));
+
+        // Sort dependencies within each license group
+        let mut sorted_deps = dependencies.clone();
+        sorted_deps.sort_by_key(|dep| &dep.name);
+
+        for dep in sorted_deps {
+            content.push_str(&format!("* {} ({})\n", dep.name, dep.version));
+        }
+        content.push('\n');
+    }
+
+    // Footer
+    content.push_str("---\n\n");
+    content.push_str(&format!(
+        "This NOTICE file contains {} third-party dependencies.\n",
+        license_data.len()
+    ));
+    content.push_str("For detailed license information, see the THIRD_PARTY_LICENSES file.\n");
+    content.push_str(&format!(
+        "Generated at: {}\n",
+        chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
+    ));
+    content.push_str("Generated by: Feluda (https://github.com/anistark/feluda)\n\n");
+
+    // Feluda disclaimer. Once Feluda is stable, this can be updated.
+    // TODO: Get it reviewed by legal counsel
+    content.push_str("DISCLAIMER:\n");
+    content.push_str("-----------\n");
+    content.push_str("Feluda is still in early stages!\n");
+    content.push_str("The license information may be incomplete, outdated, or incorrect. Users are responsible for:\n");
+    content.push_str("• Verifying the accuracy of all license information\n");
+    content.push_str("• Ensuring compliance with all applicable license terms\n");
+    content.push_str("• Consulting with legal counsel for license compliance matters\n");
+    content.push_str("• Checking the official package repositories for the most up-to-date license information\n\n");
+    content.push_str("Feluda and its contributors disclaim all warranties and are not liable for any legal issues\n");
+    content.push_str("arising from the use of this information. Use at your own risk.\n");
+
+    content
+}
+
+/// Generate or update a THIRD_PARTY_LICENSES file
+pub fn generate_third_party_licenses_file(license_data: &[LicenseInfo], path: &str) {
+    let file_path = Path::new(path).join(GenerateOption::ThirdPartyLicenses.full_filename());
+    let exists = file_exists(GenerateOption::ThirdPartyLicenses, path);
+
+    let action = if exists { "Updating" } else { "Generating" };
+
+    log(
+        LogLevel::Info,
+        &format!(
+            "{} THIRD_PARTY_LICENSES file at {} with {} dependencies",
+            action,
+            file_path.display(),
+            license_data.len()
+        ),
+    );
+
+    log_debug("License data for THIRD_PARTY_LICENSES file", &license_data);
+
+    println!(
+        "{} {} THIRD_PARTY_LICENSES file at {}...",
+        "📜".bold(),
+        action.green().bold(),
+        file_path.display().to_string().blue()
+    );
+
+    // Generate THIRD_PARTY_LICENSES content
+    let licenses_content = generate_third_party_licenses_content(license_data);
+
+    // Write to file
+    match fs::write(&file_path, licenses_content) {
+        Ok(_) => {
+            println!(
+                "{} THIRD_PARTY_LICENSES file generated successfully!",
+                "✅".green().bold()
+            );
+            println!("   📍 Location: {}", file_path.display().to_string().blue());
+            println!(
+                "   📊 Dependencies: {}",
+                license_data.len().to_string().cyan()
+            );
+        }
+        Err(err) => {
+            println!(
+                "{} Failed to write THIRD_PARTY_LICENSES file: {}",
+                "❌".red().bold(),
+                err
+            );
+            log(
+                LogLevel::Error,
+                &format!("Failed to write THIRD_PARTY_LICENSES file: {}", err),
+            );
+        }
+    }
+}
+
+/// Generate the content for a THIRD_PARTY_LICENSES file
+fn generate_third_party_licenses_content(license_data: &[LicenseInfo]) -> String {
+    let mut content = String::new();
+
+    // Header
+    content.push_str("# Third-Party Licenses\n\n");
+    content.push_str("This project includes third-party libraries licensed under various open source licenses.\n");
+    content.push_str("Below is a list of all dependencies, their versions, and license types.\n\n");
+    content.push_str(&format!("**Total Dependencies:** {}\n", license_data.len()));
+    content.push_str(&format!(
+        "**Generated:** {}\n\n",
+        chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
+    ));
+    content.push_str("---\n\n");
+
+    // Sort dependencies alphabetically
+    let mut sorted_deps: Vec<_> = license_data.iter().collect();
+    sorted_deps.sort_by(|a, b| a.name.cmp(&b.name));
+
+    // Generate entries for each dependency
+    for (index, dep) in sorted_deps.iter().enumerate() {
+        content.push_str(&format!(
+            "## {}. {} {}\n\n",
+            index + 1,
+            dep.name,
+            dep.version
+        ));
+
+        // License information
+        content.push_str(&format!("**License:** {}\n", dep.get_license()));
+
+        // Add compatibility information if available
+        match dep.compatibility {
+            crate::licenses::LicenseCompatibility::Compatible => {
+                content.push_str("**Compatibility:** ✅ Compatible\n");
+            }
+            crate::licenses::LicenseCompatibility::Incompatible => {
+                content.push_str("**Compatibility:** ⚠️ Potentially Incompatible\n");
+            }
+            crate::licenses::LicenseCompatibility::Unknown => {
+                content.push_str("**Compatibility:** ❓ Unknown\n");
+            }
+        }
+
+        // Add restrictive warning if applicable
+        if dep.is_restrictive {
+            content.push_str("**⚠️ Note:** This license may have restrictive terms\n");
+        }
+
+        // Common package repository URLs based on the dependency type
+        let repo_url = generate_package_url(&dep.name, &dep.version);
+        if let Some(url) = repo_url {
+            content.push_str(&format!("**Package URL:** {}\n", url));
+        }
+
+        // Copyright notice placeholder
+        content.push_str(&format!(
+            "**Copyright:** See {} package for copyright information\n",
+            dep.name
+        ));
+
+        // license text
+        content.push_str("\n### License Text\n\n");
+
+        match dep.get_license().as_str() {
+            "MIT" => {
+                content.push_str(get_mit_license_text(&dep.name));
+            }
+            "Apache-2.0" => {
+                content.push_str(get_apache_license_text());
+            }
+            "BSD-3-Clause" => {
+                content.push_str(get_bsd_license_text(&dep.name));
+            }
+            license if license.contains("MIT") => {
+                content.push_str(get_mit_license_text(&dep.name));
+            }
+            license if license.contains("Apache") => {
+                content.push_str(get_apache_license_text());
+            }
+            _ => {
+                content.push_str(&format!(
+                    "For the full license text of {}, please refer to the official {} license documentation.\n",
+                    dep.get_license(),
+                    dep.get_license()
+                ));
+            }
+        }
+
+        content.push_str("\n---\n\n");
+    }
+
+    // Footer with Feluda legal disclaimer
+    content.push_str("## Legal Notice & Disclaimer\n\n");
+    content.push_str("**IMPORTANT LEGAL DISCLAIMER:**\n\n");
+    content.push_str("This file was automatically generated by [Feluda](https://github.com/anistark/feluda). Feluda is still in early stages of development.\n");
+    content.push_str(
+        "The license information contained herein may be incomplete, outdated, or incorrect.\n\n",
+    );
+    content.push_str("**USER RESPONSIBILITIES:**\n");
+    content.push_str(
+        "- **Verify Accuracy**: Users must independently verify all license information\n",
+    );
+    content.push_str("- **Legal Compliance**: Ensure compliance with all applicable license terms and conditions\n");
+    content.push_str("- **Legal Counsel**: Consult with qualified legal counsel for license compliance matters\n");
+    content.push_str("- **Stay Updated**: Check official package repositories for the most current license information\n");
+    content.push_str(
+        "- **Due Diligence**: Perform thorough license audits before commercial distribution\n\n",
+    );
+    content.push_str("**LIMITATION OF LIABILITY:**\n");
+    content.push_str("Feluda, its contributors, and maintainers:\n");
+    content.push_str("- Disclaim all warranties, express or implied\n");
+    content.push_str("- Are not liable for any legal issues, damages, or losses arising from the use of this information\n");
+    content.push_str(
+        "- Do not guarantee the accuracy, completeness, or reliability of license information\n",
+    );
+    content.push_str(
+        "- Are not responsible for license compliance decisions or their consequences\n\n",
+    );
+    content.push_str("**USE AT YOUR OWN RISK**\n\n");
+    content.push_str("For the most up-to-date license information, please check the official package repositories.\n");
+    content.push_str("This tool is provided as-is without any warranties or guarantees.\n\n");
+    content.push_str("---\n\n");
+    content.push_str("*This file was generated using [Feluda](https://github.com/anistark/feluda), an open-source dependency license checker.*\n");
+
+    content
+}
+
+/// Generate package repository URL
+fn generate_package_url(name: &str, version: &str) -> Option<String> {
+    // Try to detect package type and generate appropriate URLs
+    // TODO: Combine with licenses detection function.
+
+    // Rust crates.io pattern
+    if version.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+        return Some(format!("https://crates.io/crates/{}", name));
+    }
+
+    // npm package pattern
+    if name.contains("-") || name.starts_with("@") {
+        return Some(format!("https://www.npmjs.com/package/{}", name));
+    }
+
+    // Python PyPI pattern
+    if name
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c == '_' || c == '-')
+    {
+        return Some(format!("https://pypi.org/project/{}/", name));
+    }
+
+    // Go module pattern
+    if name.contains("/") && name.contains(".") {
+        return Some(format!("https://pkg.go.dev/{}", name));
+    }
+
+    None
+}
+
+/// Get MIT license text template
+fn get_mit_license_text(_package_name: &str) -> &'static str {
+    "MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the \"Software\"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+"
+}
+
+/// Get Apache 2.0 license text
+fn get_apache_license_text() -> &'static str {
+    "Apache License
+Version 2.0, January 2004
+http://www.apache.org/licenses/
+
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+1. Definitions.
+
+\"License\" shall mean the terms and conditions for use, reproduction,
+and distribution as defined by Sections 1 through 9 of this document.
+
+\"Licensor\" shall mean the copyright owner or entity granting the License.
+
+\"Legal Entity\" shall mean the union of the acting entity and all
+other entities that control, are controlled by, or are under common
+control with that entity.
+
+[License text continues - truncated for brevity]
+
+For the complete Apache 2.0 license text, visit: http://www.apache.org/licenses/LICENSE-2.0
+
+"
+}
+
+/// Get BSD 3-Clause license text template
+fn get_bsd_license_text(_package_name: &str) -> &'static str {
+    "BSD 3-Clause License
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"
+}
+
+/// Main entry point for the generate command
+pub fn handle_generate_command(
+    path: String,
+    language: Option<String>,
+    project_license: Option<String>,
+) {
+    log(
+        LogLevel::Info,
+        &format!(
+            "Starting generate command with path: {} language: {:?} project_license: {:?}",
+            path, language, project_license
+        ),
+    );
+
+    // Parse project dependencies first
+    log(
+        LogLevel::Info,
+        &format!(
+            "Parsing dependencies for generate command in path: {}",
+            path
+        ),
+    );
+
+    // Import necessary modules for dependency parsing and license detection
+    use crate::licenses::{detect_project_license, is_license_compatible, LicenseCompatibility};
+    use crate::parser::parse_root;
+
+    let mut resolved_project_license = project_license;
+
+    // If no project license is provided via CLI, try to detect it
+    if resolved_project_license.is_none() {
+        log(
+            LogLevel::Info,
+            "No project license specified, attempting to detect",
+        );
+        match detect_project_license(&path) {
+            Ok(Some(detected)) => {
+                log(
+                    LogLevel::Info,
+                    &format!("Detected project license: {}", detected),
+                );
+                resolved_project_license = Some(detected);
+            }
+            Ok(None) => {
+                log(LogLevel::Warn, "Could not detect project license");
+            }
+            Err(e) => {
+                log(
+                    LogLevel::Error,
+                    &format!("Error detecting project license: {}", e),
+                );
+            }
+        }
+    } else {
+        log(
+            LogLevel::Info,
+            &format!(
+                "Using provided project license: {}",
+                resolved_project_license.as_ref().unwrap()
+            ),
+        );
+    }
+
+    // Parse and analyze dependencies
+    let mut analyzed_data = match parse_root(&path, language.as_deref()) {
+        Ok(data) => data,
+        Err(e) => {
+            println!("{} Failed to parse dependencies: {}", "❌".red().bold(), e);
+            log(
+                LogLevel::Error,
+                &format!("Failed to parse dependencies: {}", e),
+            );
+            return;
+        }
+    };
+
+    log_debug("Analyzed dependencies for generate command", &analyzed_data);
+
+    // Update each dependency with compatibility information if project license is known
+    if let Some(ref proj_license) = resolved_project_license {
+        log(
+            LogLevel::Info,
+            &format!(
+                "Checking license compatibility against project license: {}",
+                proj_license
+            ),
+        );
+
+        for info in &mut analyzed_data {
+            if let Some(ref dep_license) = info.license {
+                info.compatibility = is_license_compatible(dep_license, proj_license);
+            } else {
+                info.compatibility = LicenseCompatibility::Unknown;
+            }
+        }
+    } else {
+        // If no project license is known, mark all as unknown compatibility
+        for info in &mut analyzed_data {
+            info.compatibility = LicenseCompatibility::Unknown;
+        }
+    }
+
+    // Check if we have any dependencies to process
+    if analyzed_data.is_empty() {
+        println!(
+            "{} {}",
+            "⚠️".yellow().bold(),
+            "No dependencies found. Cannot generate files without dependency data.".yellow()
+        );
+        return;
+    }
+
+    println!(
+        "\n{}",
+        "🚀 Welcome to Feluda License File Generator!"
+            .bold()
+            .green()
+    );
+    println!(
+        "{}",
+        format!("Found {} dependencies to process.", analyzed_data.len()).dimmed()
+    );
+
+    match show_interactive_menu(&path) {
+        Some(GenerateOption::Notice) => {
+            generate_notice_file(&analyzed_data, &path);
+        }
+        Some(GenerateOption::ThirdPartyLicenses) => {
+            generate_third_party_licenses_file(&analyzed_data, &path);
+        }
+        None => {
+            log(LogLevel::Info, "User cancelled generate operation");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::licenses::LicenseCompatibility;
+    use tempfile::TempDir;
+
+    fn get_test_license_data() -> Vec<LicenseInfo> {
+        vec![
+            LicenseInfo {
+                name: "serde".to_string(),
+                version: "1.0.151".to_string(),
+                license: Some("MIT".to_string()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Compatible,
+            },
+            LicenseInfo {
+                name: "tokio".to_string(),
+                version: "1.0.2".to_string(),
+                license: Some("MIT".to_string()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Compatible,
+            },
+        ]
+    }
+
+    #[test]
+    fn test_generate_option_display_name() {
+        assert_eq!(GenerateOption::Notice.display_name(), "NOTICE file");
+        assert_eq!(
+            GenerateOption::ThirdPartyLicenses.display_name(),
+            "THIRD_PARTY_LICENSES file"
+        );
+    }
+
+    #[test]
+    fn test_generate_option_filename() {
+        assert_eq!(GenerateOption::Notice.filename(), "NOTICE");
+        assert_eq!(
+            GenerateOption::ThirdPartyLicenses.filename(),
+            "THIRD_PARTY_LICENSES"
+        );
+    }
+
+    #[test]
+    fn test_generate_option_full_filename() {
+        assert_eq!(GenerateOption::Notice.full_filename(), "NOTICE");
+        assert_eq!(
+            GenerateOption::ThirdPartyLicenses.full_filename(),
+            "THIRD_PARTY_LICENSES.md"
+        );
+    }
+
+    #[test]
+    fn test_file_exists_false() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().to_str().unwrap();
+
+        assert!(!file_exists(GenerateOption::Notice, path));
+        assert!(!file_exists(GenerateOption::ThirdPartyLicenses, path));
+    }
+
+    #[test]
+    fn test_file_exists_true() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().to_str().unwrap();
+
+        std::fs::write(temp_dir.path().join("NOTICE"), "test notice").unwrap();
+        std::fs::write(
+            temp_dir.path().join("THIRD_PARTY_LICENSES.md"),
+            "test licenses",
+        )
+        .unwrap();
+
+        assert!(file_exists(GenerateOption::Notice, path));
+        assert!(file_exists(GenerateOption::ThirdPartyLicenses, path));
+    }
+
+    #[test]
+    fn test_generate_notice_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().to_str().unwrap();
+        let license_data = get_test_license_data();
+        generate_notice_file(&license_data, path);
+    }
+
+    #[test]
+    fn test_generate_third_party_licenses_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().to_str().unwrap();
+        let license_data = get_test_license_data();
+        generate_third_party_licenses_file(&license_data, path);
+    }
+
+    #[test]
+    fn test_handle_generate_command_empty_data() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().to_str().unwrap();
+        handle_generate_command(path.to_string(), None, None);
+    }
+
+    #[test]
+    fn test_generate_option_copy() {
+        let option1 = GenerateOption::Notice;
+        let option2 = option1;
+        assert_eq!(option1.display_name(), option2.display_name());
+    }
+
+    #[test]
+    fn test_generate_option_debug() {
+        let option = GenerateOption::ThirdPartyLicenses;
+        let debug_str = format!("{:?}", option);
+        assert!(debug_str.contains("ThirdPartyLicenses"));
+    }
+}

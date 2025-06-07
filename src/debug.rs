@@ -68,7 +68,7 @@ pub fn log_error<E: std::fmt::Display>(context: &str, error: &E) {
 }
 
 /// Log detailed information about a value if debug mode is enabled
-pub fn log_debug<T: std::fmt::Debug>(context: &str, value: &T) {
+pub fn log_debug<T: std::fmt::Debug + ?Sized>(context: &str, value: &T) {
     if is_debug_mode() {
         println!(
             "[{}] {}: {:?}",

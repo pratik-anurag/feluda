@@ -16,6 +16,7 @@
 - Check license compatibility between dependencies and your project's license.
 - Flag dependencies with licenses that may restrict personal or commercial use.
 - Flag dependencies with licenses that may be incompatible with your project's license.
+- Generate compliance files (NOTICE and THIRD_PARTY_LICENSES) for legal requirements.
 - Output results in plain text, JSON or TUI formats. There's also a gist format which is available in strict mode to output a single line only.
 - CI/CD support for Github Actions and Jenkins.
 - Verbose mode gives an enhanced view of all licenses.
@@ -27,13 +28,13 @@
 3. ![Go](https://img.shields.io/badge/go-%2300ADD8.svg?style=for-the-badge&logo=go&logoColor=white)
 4. ![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
 
-Feluda supports analyzing dependencies across multiple languages simultaneously. You can also filter the analysis to a specific language using the `--language` flag.
-
+Feluda supports analyzing dependencies across multiple languages simultaneously.
 
 ```sh
-feluda --language {rust|node|go|python}
+feluda
 ```
 
+You can also filter the analysis to a specific language using the `--language` flag.
 _If your fav language or framework isn't supported, feel free to open an feature request issue! 👋_
 
 ## Installation
@@ -137,26 +138,102 @@ sudo mv target/release/feluda /usr/local/bin/
 
 ## Usage
 
-### Basic Usage
-
-Run the tool in the project directory:
+Feluda provides license analysis by default, with an additional command for generating compliance files.
+Analyze your project's dependencies and their licenses:
 
 ```sh
+# Basic usage
 feluda
+
+# Specify a path to your project directory
+feluda --path /path/to/project/
+
+# Check with specific language
+feluda --language {rust|node|go|python}
 ```
 
-### Specify a Path to your project directory
+### License File Generation
+
+Generate compliance files for legal requirements:
 
 ```sh
-feluda --path /path/to/project/
+# Interactive file generation
+feluda generate
+
+# Generate for specific language and license
+feluda generate --language rust --project-license MIT
+
+# Generate for specific path
+feluda generate --path /path/to/project/
 ```
+
+
 
 _If you're using Feluda, feel free to grab a Scanned with Feluda badge for your project:_ [![Scanned with Feluda](https://img.shields.io/badge/Scanned%20with-Feluda-red)](https://github.com/anistark/feluda)
 ```
 [![Scanned with Feluda](https://img.shields.io/badge/Scanned%20with-Feluda-red)](https://github.com/anistark/feluda)
 ```
 
-### Output Format
+## License Compliance Files
+
+Feluda can generate essential compliance files required for commercial software distribution and open source projects.
+
+### NOTICE File
+
+A **NOTICE file** is a concise summary document that provides attribution for third-party components:
+
+- **Purpose**: Quick overview of all third-party components and their licenses
+- **Content**: Organized by license type, lists all dependencies with their versions
+- **Use Cases**: 
+  - Legal compliance documentation
+  - Quick reference for license audits
+  - Attribution requirements for many open source licenses
+
+### THIRD_PARTY_LICENSES File
+
+A **THIRD_PARTY_LICENSES file** provides comprehensive license documentation:
+
+- **Purpose**: Complete legal documentation for all dependencies
+- **Content**: Full license texts, compatibility analysis, package URLs, and copyright information
+- **Use Cases**:
+  - Commercial software distribution requirements
+  - Legal compliance for enterprise applications
+  - Due diligence for acquisitions and audits
+  - App store submissions (iOS, Android, etc.)
+
+### Why These Files Are Important
+
+**Legal Protection**: Many open source licenses require attribution when redistributing code. These files ensure compliance and protect your organization from legal issues.
+
+**Transparency**: Shows exactly what third-party code is included in your application, building trust with users and stakeholders.
+
+**Commercial Readiness**: Essential for commercial software, enterprise deployments, and app store submissions.
+
+**Audit Preparation**: Makes license audits faster and easier by providing all necessary documentation in standard formats.
+
+### Important Legal Notice
+
+**⚠️ DISCLAIMER**: Feluda is still in early stages. While we're trying to follow through all compliances, users are responsible for:
+
+- **Verifying accuracy** of all license information
+- **Ensuring compliance** with all applicable license terms
+- **Consulting legal counsel** for license compliance matters
+- **Checking official repositories** for up-to-date license information
+
+Feluda and its contributors disclaim all warranties and are not liable for any legal issues arising from the use of this information. **Use at your own risk.**
+
+### When You Need These Files
+
+- 📱 **Mobile app distribution** (iOS App Store, Google Play)
+- 🏢 **Enterprise software deployment**
+- 💼 **Commercial product releases**
+- 🔍 **Legal compliance audits**
+- 🤝 **Open source project attribution**
+- 📄 **Regulatory compliance** (GDPR, SOX, etc.)
+
+## Output Format
+
+### JSON
 
 - Default: Plain text.
 - JSON: Use the `--json` flag for JSON output.
@@ -186,7 +263,9 @@ Sample Output for a sample cargo.toml file containing `serde` and `tokio` depend
 ]
 ```
 
-- YAML: Use the `--yaml` flag for YAML output.
+### YAML
+
+Use the `--yaml` flag for YAML output
 
 ```sh
 feluda --yaml
@@ -243,7 +322,7 @@ In case you strictly need only the restrictive dependencies:
 feluda --strict
 ```
 
-### TUI Mode
+### Terminal User Interface (TUI) Mode
 
 We've an awesome ✨ TUI mode available to browse through the dependencies in a visually appealing way as well:
 
@@ -252,83 +331,6 @@ feluda --gui
 ```
 
 ![ss-gui](https://github.com/user-attachments/assets/44d46755-b186-4326-a3fb-548da31f3acd)
-
-
-### Programmatic Usage
-
-Feluda can be used as a library in Rust projects. The main entry point for generating reports is the generate_report function in the reporter module, which takes a Vec<LicenseInfo> and a ReportConfig struct.
-
-Example 
-```example
-use feluda::licenses::{LicenseCompatibility, LicenseInfo};
-use feluda::reporter::{generate_report, ReportConfig};
-use feluda::cli::CiFormat;
-
-fn main() {
-    let data = vec![
-        LicenseInfo {
-            name: "serde".to_string(),
-            version: "1.0.151".to_string(),
-            license: Some("MIT".to_string()),
-            is_restrictive: false,
-            compatibility: LicenseCompatibility::Compatible,
-        },
-        LicenseInfo {
-            name: "tokio".to_string(),
-            version: "1.0.2".to_string(),
-            license: Some("MIT".to_string()),
-            is_restrictive: false,
-            compatibility: LicenseCompatibility::Compatible,
-        },
-    ];
-
-    let config = ReportConfig::new(
-        false,                    // json
-        false,                    // yaml
-        true,                     // verbose
-        false,                    // strict
-        None,                     // ci_format
-        Some("report.txt".to_string()), // output_file
-        Some("MIT".to_string()), // project_license
-    );
-
-    let (has_restrictive, has_incompatible) = generate_report(data, config);
-    println!("Has restrictive licenses: {}", has_restrictive);
-    println!("Has incompatible licenses: {}", has_incompatible);
-}
-```
-
-### ReportConfig Struct
-
-
-The ReportConfig struct configures the generate_report function:
-
-```struct
-pub struct ReportConfig {
-    pub json: bool,                    
-    pub yaml: bool,                   
-    pub verbose: bool,                 
-    pub strict: bool,                 
-    pub ci_format: Option<CiFormat>,  
-    pub output_file: Option<String>,   
-    pub project_license: Option<String>,
-}
-```
-
-## Create a ReportConfig using the new method:
-
-```new_struct
-let config = ReportConfig::new(
-    false,
-    false,
-    true,
-    false,
-    None,
-    None,
-    Some("MIT".to_string())
-);
-```
-
 
 ## CI/CD Integration
 
@@ -373,13 +375,26 @@ jobs:
 
       - name: Check licenses
         run: feluda --ci-format github --fail-on-restrictive --fail-on-incompatible
+
+      - name: Generate compliance files
+        run: |
+          echo "1" | feluda generate  # Auto-select NOTICE file
+          echo "2" | feluda generate  # Auto-select THIRD_PARTY_LICENSES file
+
+      - name: Upload compliance artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: license-compliance
+          path: |
+            NOTICE
+            THIRD_PARTY_LICENSES.md
 ```
 
 Checkout [contributing guidelines](./CONTRIBUTING.md) if you are looking to contribute to this project.
 
 > Currently, using [choosealicense](https://choosealicense.com/) license directory for source of truth.
 
-## Configuration
+## Configuration (Optional)
 
 Feluda allows you to customize which licenses are considered restrictive through configuration. This can be done in three ways, listed in order of precedence (highest to lowest):
 
