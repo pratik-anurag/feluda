@@ -382,9 +382,13 @@ mod tests {
         };
 
         assert!(!cli.is_default_command());
-        
+
         match cli.get_command_args() {
-            Commands::Generate { path, language, project_license } => {
+            Commands::Generate {
+                path,
+                language,
+                project_license,
+            } => {
                 assert_eq!(path, "./test");
                 assert_eq!(language, Some("node".to_string()));
                 assert_eq!(project_license, Some("Apache-2.0".to_string()));

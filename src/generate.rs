@@ -1,12 +1,18 @@
+use crate::cli::with_spinner;
 use crate::debug::{log, log_debug, LogLevel};
-use crate::licenses::LicenseInfo;
+use crate::licenses::{
+    detect_project_license, is_license_compatible, LicenseCompatibility, LicenseInfo,
+};
+use crate::parser::parse_root;
 use colored::*;
+use reqwest::blocking::Client;
 use std::fs;
 use std::io::{self, Write};
 use std::io::{stdin, Read};
 #[cfg(unix)]
 use std::os::unix::io::AsRawFd;
 use std::path::Path;
+use std::time::Duration;
 
 /// Key input handling for cross-platform compatibility
 #[derive(Debug, PartialEq)]
@@ -524,7 +530,13 @@ pub fn generate_third_party_licenses_file(license_data: &[LicenseInfo], path: &s
     );
 
     // Generate THIRD_PARTY_LICENSES content
-    let licenses_content = generate_third_party_licenses_content(license_data);
+    let (licenses_content, fetch_stats) = with_spinner(
+        &format!(
+            "Fetching license content for {} dependencies",
+            license_data.len()
+        ),
+        |indicator| generate_third_party_licenses_content(license_data, indicator),
+    );
 
     // Write to file
     match fs::write(&file_path, licenses_content) {
@@ -538,6 +550,26 @@ pub fn generate_third_party_licenses_file(license_data: &[LicenseInfo], path: &s
                 "   📊 Dependencies: {}",
                 license_data.len().to_string().cyan()
             );
+
+            // Display license fetching statistics
+            let (successfully_fetched, failed_to_fetch) = fetch_stats;
+            println!(
+                "   📄 Actual license texts fetched: {} ({:.1}%)",
+                successfully_fetched.to_string().green(),
+                (successfully_fetched as f64 / license_data.len() as f64) * 100.0
+            );
+
+            if failed_to_fetch > 0 {
+                println!(
+                    "   ⚠️  License texts not fetched: {} ({:.1}%)",
+                    failed_to_fetch.to_string().yellow(),
+                    (failed_to_fetch as f64 / license_data.len() as f64) * 100.0
+                );
+                println!(
+                    "      {}",
+                    "Templates or generic references used for these dependencies.".dimmed()
+                );
+            }
         }
         Err(err) => {
             println!(
@@ -553,9 +585,360 @@ pub fn generate_third_party_licenses_file(license_data: &[LicenseInfo], path: &s
     }
 }
 
+/// HTTP client for API requests
+fn create_http_client() -> Option<Client> {
+    Client::builder()
+        .user_agent("feluda-license-checker/1.0")
+        .timeout(Duration::from_secs(10))
+        .build()
+        .ok()
+}
+
+/// Rate limit delay to avoid hitting API limits
+fn rate_limit_delay() {
+    std::thread::sleep(Duration::from_millis(500));
+}
+
+/// Fetch the actual license content for a dependency
+fn fetch_actual_license_content(name: &str, version: &str) -> Option<String> {
+    log(
+        LogLevel::Info,
+        &format!(
+            "Attempting to fetch actual license content for {} v{}",
+            name, version
+        ),
+    );
+
+    // Fetch from crates.io for Rust packages
+    if let Some(content) = fetch_license_from_crates_io(name, version) {
+        return Some(content);
+    }
+
+    // Fetch from npm for Node.js packages
+    if let Some(content) = fetch_license_from_npm(name, version) {
+        return Some(content);
+    }
+
+    // Fetch from PyPI for Python packages
+    if let Some(content) = fetch_license_from_pypi(name, version) {
+        return Some(content);
+    }
+
+    // Fetch from Go proxy for Go modules
+    if let Some(content) = fetch_license_from_go_proxy(name, version) {
+        return Some(content);
+    }
+
+    // Fetch from GitHub if we can infer the repository
+    if let Some(content) = fetch_license_from_github(name, version) {
+        return Some(content);
+    }
+
+    log(
+        LogLevel::Warn,
+        &format!(
+            "Could not fetch actual license content for {} v{}",
+            name, version
+        ),
+    );
+    None
+}
+
+/// Fetch license content from crates.io
+fn fetch_license_from_crates_io(name: &str, version: &str) -> Option<String> {
+    log(
+        LogLevel::Info,
+        &format!(
+            "Trying to fetch license from crates.io for {} v{}",
+            name, version
+        ),
+    );
+
+    let client = create_http_client()?;
+    rate_limit_delay();
+
+    let api_url = format!("https://crates.io/api/v1/crates/{}", name);
+    let response = client.get(&api_url).send().ok()?;
+
+    if !response.status().is_success() {
+        log(
+            LogLevel::Warn,
+            &format!(
+                "Failed to fetch crate info from crates.io: HTTP {}",
+                response.status()
+            ),
+        );
+        return None;
+    }
+
+    let crate_info: serde_json::Value = response.json().ok()?;
+
+    let repository = crate_info.get("crate")?.get("repository")?.as_str()?;
+
+    log(
+        LogLevel::Info,
+        &format!("Found repository for {}: {}", name, repository),
+    );
+
+    if repository.contains("github.com") {
+        return fetch_license_from_github_repo(repository);
+    }
+
+    None
+}
+
+/// Fetch license content from npm
+fn fetch_license_from_npm(name: &str, version: &str) -> Option<String> {
+    log(
+        LogLevel::Info,
+        &format!("Trying to fetch license from npm for {} v{}", name, version),
+    );
+
+    let client = create_http_client()?;
+    rate_limit_delay();
+
+    let api_url = format!("https://registry.npmjs.org/{}/{}", name, version);
+    let response = client.get(&api_url).send().ok()?;
+
+    if !response.status().is_success() {
+        log(
+            LogLevel::Warn,
+            &format!(
+                "Failed to fetch package info from npm: HTTP {}",
+                response.status()
+            ),
+        );
+        return None;
+    }
+
+    let package_info: serde_json::Value = response.json().ok()?;
+
+    if let Some(repository) = package_info.get("repository") {
+        if let Some(url) = repository.get("url").and_then(|u| u.as_str()) {
+            log(
+                LogLevel::Info,
+                &format!("Found repository for {}: {}", name, url),
+            );
+
+            let clean_url = url
+                .trim_start_matches("git+")
+                .trim_end_matches(".git")
+                .replace("git://", "https://");
+
+            if clean_url.contains("github.com") {
+                return fetch_license_from_github_repo(&clean_url);
+            }
+        }
+    }
+
+    None
+}
+
+/// Fetch license content from PyPI
+fn fetch_license_from_pypi(name: &str, version: &str) -> Option<String> {
+    log(
+        LogLevel::Info,
+        &format!(
+            "Trying to fetch license from PyPI for {} v{}",
+            name, version
+        ),
+    );
+
+    let client = create_http_client()?;
+    rate_limit_delay();
+
+    let api_url = format!("https://pypi.org/pypi/{}/{}/json", name, version);
+    let response = client.get(&api_url).send().ok()?;
+
+    if !response.status().is_success() {
+        log(
+            LogLevel::Warn,
+            &format!(
+                "Failed to fetch package info from PyPI: HTTP {}",
+                response.status()
+            ),
+        );
+        return None;
+    }
+
+    let package_info: serde_json::Value = response.json().ok()?;
+
+    if let Some(project_urls) = package_info.get("info").and_then(|i| i.get("project_urls")) {
+        if let Some(homepage) = project_urls.get("Homepage").and_then(|h| h.as_str()) {
+            log(
+                LogLevel::Info,
+                &format!("Found homepage for {}: {}", name, homepage),
+            );
+
+            if homepage.contains("github.com") {
+                return fetch_license_from_github_repo(homepage);
+            }
+        }
+    }
+
+    None
+}
+
+/// Fetch license content from Go proxy
+fn fetch_license_from_go_proxy(name: &str, version: &str) -> Option<String> {
+    log(
+        LogLevel::Info,
+        &format!(
+            "Trying to fetch license from Go proxy for {} v{}",
+            name, version
+        ),
+    );
+
+    if name.starts_with("github.com/") {
+        let repo_url = format!(
+            "https://{}",
+            name.split('/').take(3).collect::<Vec<_>>().join("/")
+        );
+        log(
+            LogLevel::Info,
+            &format!("Inferred GitHub repository: {}", repo_url),
+        );
+        return fetch_license_from_github_repo(&repo_url);
+    }
+
+    None
+}
+
+/// Fetch license content from a GitHub repository
+fn fetch_license_from_github(name: &str, _version: &str) -> Option<String> {
+    log(
+        LogLevel::Info,
+        &format!("Trying to infer GitHub repository for {}", name),
+    );
+
+    let possible_repos = vec![
+        format!("https://github.com/{}/{}", name, name),
+        format!("https://github.com/{}/lib{}", name, name),
+        format!("https://github.com/{}/{}-rs", name, name),
+        format!("https://github.com/{}/{}.js", name, name),
+    ];
+
+    for repo_url in possible_repos {
+        log(LogLevel::Info, &format!("Trying repository: {}", repo_url));
+        if let Some(content) = fetch_license_from_github_repo(&repo_url) {
+            return Some(content);
+        }
+    }
+
+    None
+}
+
+/// Fetch license content from GitHub repository
+fn fetch_license_from_github_repo(repo_url: &str) -> Option<String> {
+    log(
+        LogLevel::Info,
+        &format!("Fetching license from GitHub repo: {}", repo_url),
+    );
+
+    let parts: Vec<&str> = repo_url.trim_end_matches('/').split('/').collect();
+
+    if parts.len() < 2 {
+        log(
+            LogLevel::Warn,
+            &format!("Invalid GitHub URL format: {}", repo_url),
+        );
+        return None;
+    }
+
+    let owner = parts[parts.len() - 2];
+    let repo = parts[parts.len() - 1];
+
+    let client = create_http_client()?;
+    rate_limit_delay();
+
+    // Common license file names
+    let license_files = [
+        "LICENSE",
+        "LICENSE.txt",
+        "LICENSE.md",
+        "license",
+        "license.txt",
+        "license.md",
+        "COPYING",
+        "COPYING.txt",
+        "COPYRIGHT",
+        "COPYRIGHT.txt",
+    ];
+
+    for license_file in &license_files {
+        let api_url = format!(
+            "https://api.github.com/repos/{}/{}/contents/{}",
+            owner, repo, license_file
+        );
+
+        log(LogLevel::Info, &format!("Trying to fetch: {}", api_url));
+
+        match client.get(&api_url).send() {
+            Ok(response) => {
+                if response.status().is_success() {
+                    if let Ok(content_info) = response.json::<serde_json::Value>() {
+                        if let Some(download_url) =
+                            content_info.get("download_url").and_then(|u| u.as_str())
+                        {
+                            log(
+                                LogLevel::Info,
+                                &format!("Found license file, downloading from: {}", download_url),
+                            );
+
+                            rate_limit_delay();
+
+                            match client.get(download_url).send() {
+                                Ok(license_response) => {
+                                    if license_response.status().is_success() {
+                                        if let Ok(license_content) = license_response.text() {
+                                            log(LogLevel::Info, &format!("Successfully fetched license content for {} from {}", repo, license_file));
+                                            return Some(license_content);
+                                        }
+                                    }
+                                }
+                                Err(err) => {
+                                    log(
+                                        LogLevel::Warn,
+                                        &format!("Failed to download license file: {}", err),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                } else if response.status().as_u16() == 404 {
+                    continue;
+                } else {
+                    log(
+                        LogLevel::Warn,
+                        &format!("GitHub API error: HTTP {}", response.status()),
+                    );
+                }
+            }
+            Err(err) => {
+                log(
+                    LogLevel::Warn,
+                    &format!("Failed to fetch from GitHub API: {}", err),
+                );
+            }
+        }
+    }
+
+    log(
+        LogLevel::Warn,
+        &format!("No license file found in repository: {}/{}", owner, repo),
+    );
+    None
+}
+
 /// Generate the content for a THIRD_PARTY_LICENSES file
-fn generate_third_party_licenses_content(license_data: &[LicenseInfo]) -> String {
+fn generate_third_party_licenses_content(
+    license_data: &[LicenseInfo],
+    indicator: &crate::cli::LoadingIndicator,
+) -> (String, (usize, usize)) {
     let mut content = String::new();
+
+    let mut successfully_fetched = 0;
+    let mut failed_to_fetch = 0;
 
     // Header
     content.push_str("# Third-Party Licenses\n\n");
@@ -572,8 +955,11 @@ fn generate_third_party_licenses_content(license_data: &[LicenseInfo]) -> String
     let mut sorted_deps: Vec<_> = license_data.iter().collect();
     sorted_deps.sort_by(|a, b| a.name.cmp(&b.name));
 
-    // Generate entries for each dependency
+    indicator.update_progress("processing dependencies");
+
     for (index, dep) in sorted_deps.iter().enumerate() {
+        indicator.update_progress(&format!("processing {}/{}", index + 1, sorted_deps.len()));
+
         content.push_str(&format!(
             "## {}. {} {}\n\n",
             index + 1,
@@ -604,7 +990,7 @@ fn generate_third_party_licenses_content(license_data: &[LicenseInfo]) -> String
 
         // Common package repository URLs based on the dependency type
         let repo_url = generate_package_url(&dep.name, &dep.version);
-        if let Some(url) = repo_url {
+        if let Some(ref url) = repo_url {
             content.push_str(&format!("**Package URL:** {}\n", url));
         }
 
@@ -614,36 +1000,115 @@ fn generate_third_party_licenses_content(license_data: &[LicenseInfo]) -> String
             dep.name
         ));
 
-        // license text
+        // License text
         content.push_str("\n### License Text\n\n");
 
-        match dep.get_license().as_str() {
-            "MIT" => {
-                content.push_str(get_mit_license_text(&dep.name));
+        // Try to fetch the actual license content
+        match fetch_actual_license_content(&dep.name, &dep.version) {
+            Some(actual_license_content) => {
+                successfully_fetched += 1;
+                log(
+                    LogLevel::Info,
+                    &format!("Using actual license content for {}", dep.name),
+                );
+
+                content.push_str("*The following is the actual license text from the dependency's repository:*\n\n");
+                content.push_str("```\n");
+                content.push_str(&actual_license_content);
+                content.push_str("\n```\n");
             }
-            "Apache-2.0" => {
-                content.push_str(get_apache_license_text());
-            }
-            "BSD-3-Clause" => {
-                content.push_str(get_bsd_license_text(&dep.name));
-            }
-            license if license.contains("MIT") => {
-                content.push_str(get_mit_license_text(&dep.name));
-            }
-            license if license.contains("Apache") => {
-                content.push_str(get_apache_license_text());
-            }
-            _ => {
-                content.push_str(&format!(
-                    "For the full license text of {}, please refer to the official {} license documentation.\n",
-                    dep.get_license(),
-                    dep.get_license()
-                ));
+            None => {
+                failed_to_fetch += 1;
+                log(
+                    LogLevel::Warn,
+                    &format!(
+                        "Could not fetch actual license for {}, using fallback",
+                        dep.name
+                    ),
+                );
+
+                match dep.get_license().as_str() {
+                    "MIT" => {
+                        content.push_str("*Note: Could not fetch actual license text. Below is the standard MIT license template:*\n\n");
+                        content.push_str(get_mit_license_text(&dep.name));
+                    }
+                    "Apache-2.0" => {
+                        content.push_str("*Note: Could not fetch actual license text. Below is the standard Apache 2.0 license template:*\n\n");
+                        content.push_str(get_apache_license_text());
+                    }
+                    "BSD-3-Clause" => {
+                        content.push_str("*Note: Could not fetch actual license text. Below is the standard BSD 3-Clause license template:*\n\n");
+                        content.push_str(get_bsd_license_text(&dep.name));
+                    }
+                    license if license.contains("MIT") => {
+                        content.push_str("*Note: Could not fetch actual license text. Below is the standard MIT license template:*\n\n");
+                        content.push_str(get_mit_license_text(&dep.name));
+                    }
+                    license if license.contains("Apache") => {
+                        content.push_str("*Note: Could not fetch actual license text. Below is the standard Apache 2.0 license template:*\n\n");
+                        content.push_str(get_apache_license_text());
+                    }
+                    _ => {
+                        content.push_str(&format!(
+                            "*Could not fetch the actual license text for {}.*\n\n",
+                            dep.name
+                        ));
+                        content.push_str(&format!(
+                            "For the full license text of {}, please refer to:\n",
+                            dep.get_license()
+                        ));
+                        content.push_str(&format!(
+                            "- The official {} license documentation\n",
+                            dep.get_license()
+                        ));
+                        if let Some(ref url) = repo_url {
+                            content.push_str(&format!("- The package repository: {}\n", url));
+                        }
+                        content.push_str("- The dependency's source code or package files\n\n");
+                    }
+                }
             }
         }
 
         content.push_str("\n---\n\n");
     }
+
+    indicator.update_progress("finalizing document");
+
+    content.push_str("## License Fetching Statistics\n\n");
+    content.push_str(&format!(
+        "**Total Dependencies Processed:** {}\n",
+        license_data.len()
+    ));
+    content.push_str(&format!(
+        "**Actual License Texts Fetched:** {} ({:.1}%)\n",
+        successfully_fetched,
+        (successfully_fetched as f64 / license_data.len() as f64) * 100.0
+    ));
+    content.push_str(&format!(
+        "**License Texts Not Fetched:** {} ({:.1}%)\n",
+        failed_to_fetch,
+        (failed_to_fetch as f64 / license_data.len() as f64) * 100.0
+    ));
+
+    if successfully_fetched > 0 {
+        content.push_str(&format!(
+            "\n✅ Successfully fetched actual license texts for {} dependencies.\n",
+            successfully_fetched
+        ));
+    }
+
+    if failed_to_fetch > 0 {
+        content.push_str(&format!(
+            "\n⚠️ Could not fetch actual license texts for {} dependencies. Using fallback templates or generic references.\n",
+            failed_to_fetch
+        ));
+        content.push_str(
+            "Consider manually verifying the license information for these dependencies.\n",
+        );
+    }
+
+    content.push('\n');
 
     // Footer with Feluda legal disclaimer
     content.push_str("## Legal Notice & Disclaimer\n\n");
@@ -678,7 +1143,7 @@ fn generate_third_party_licenses_content(license_data: &[LicenseInfo]) -> String
     content.push_str("---\n\n");
     content.push_str("*This file was generated using [Feluda](https://github.com/anistark/feluda), an open-source dependency license checker.*\n");
 
-    content
+    (content, (successfully_fetched, failed_to_fetch))
 }
 
 /// Generate package repository URL
@@ -819,9 +1284,6 @@ pub fn handle_generate_command(
     );
 
     // Import necessary modules for dependency parsing and license detection
-    use crate::licenses::{detect_project_license, is_license_compatible, LicenseCompatibility};
-    use crate::parser::parse_root;
-
     let mut resolved_project_license = project_license;
 
     // If no project license is provided via CLI, try to detect it

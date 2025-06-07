@@ -89,7 +89,7 @@ fn run() -> FeludaResult<()> {
         // Handle subcommands
         let command = args.get_command_args();
         match command {
-            Commands::Generate { 
+            Commands::Generate {
                 path,
                 language,
                 project_license,

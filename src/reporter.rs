@@ -112,9 +112,7 @@ impl TableFormatter {
 pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, bool) {
     log(
         LogLevel::Info,
-        &format!(
-            "Generating report with config: {:?}", config
-        ),
+        &format!("Generating report with config: {:?}", config),
     );
 
     let total_packages = data.len();
