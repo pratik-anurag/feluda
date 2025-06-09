@@ -1,6 +1,6 @@
 [package]
 name = "feluda"
-version = "1.8.3"
+version = "1.8.5"
 edition = "2021"
 description = "A CLI tool to check dependency licenses."
 readme = "README.md"
@@ -14,10 +14,10 @@ documentation = "https://docs.rs/feluda"
 rust-version = "1.70.0"
 
 [dependencies]
-cargo_metadata = "0.19.2"
-clap = { version = "4.5.37", features = ["derive"] }
+cargo_metadata = "0.20.0"
+clap = { version = "4.5.39", features = ["derive"] }
 serde = { version = "1.0.219", features = ["derive"] }
-reqwest = { version = "0.12.15", default-features = false, features = [
+reqwest = { version = "0.12.19", default-features = false, features = [
     "json",
     "blocking",
     "rustls-tls",
@@ -26,9 +26,9 @@ reqwest = { version = "0.12.15", default-features = false, features = [
 ] }
 serde_json = "1.0.140"
 scraper = "0.23.1"
-owo-colors = "4.2.0"
-color-eyre = { version = "0.6.4", default-features = false }
-color-spantrace = "0.2.2"
+owo-colors = "4.2.1"
+color-eyre = { version = "0.6.5", default-features = false }
+color-spantrace = "0.3.0"
 ratatui = "0.29.0"
 unicode-width = "0.2.0"
 spinners = "4.1.1"
@@ -37,16 +37,16 @@ colored = "3.0.0"
 rayon = "1.10.0"
 figment = { version = "0.10", features = ["toml", "env"] }
 ignore = "0.4.23"
-toml = "0.8.22"
+toml = "0.8.23"
 regex = "1.11.1"
 thiserror = "2.0.12"
-backtrace = { version = "0.3.74", optional = true }
+backtrace = { version = "0.3.75", optional = true }
 tracing = { version = "0.1.40", features = ["attributes"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 chrono = { version = "0.4", features = ["serde"] }
-git2 = "0.19"  # For Git repository cloning
-tempfile = "3.19.1"
-dirs = "5.0"
+git2 = "0.20.2"
+tempfile = "3.20.0"
+dirs = "6.0.0"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

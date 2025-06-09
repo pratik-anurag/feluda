@@ -1426,7 +1426,7 @@ mod tests {
 
     #[test]
     fn test_print_restrictive_licenses_table() {
-        let data = vec![
+        let data = [
             LicenseInfo {
                 name: "restrictive1".to_string(),
                 version: "1.0.0".to_string(),

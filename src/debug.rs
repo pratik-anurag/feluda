@@ -167,14 +167,17 @@ mod tests {
         assert_eq!(LogLevel::Warn, LogLevel::Warn);
         assert_eq!(LogLevel::Error, LogLevel::Error);
         assert_eq!(LogLevel::Trace, LogLevel::Trace);
-        
+
         assert_ne!(LogLevel::Info, LogLevel::Warn);
         assert_ne!(LogLevel::Error, LogLevel::Trace);
     }
 
     #[test]
     fn test_feluda_error_variants() {
-        let io_error = FeludaError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "File not found"));
+        let io_error = FeludaError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "File not found",
+        ));
         let config_error = FeludaError::Config("Invalid config".to_string());
         let parser_error = FeludaError::Parser("Parse failed".to_string());
         let license_error = FeludaError::License("License error".to_string());
@@ -191,9 +194,9 @@ mod tests {
     fn test_feluda_error_from_io() {
         let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "Access denied");
         let feluda_err: FeludaError = io_err.into();
-        
+
         match feluda_err {
-            FeludaError::Io(_) => {},
+            FeludaError::Io(_) => {}
             _ => panic!("Expected IO error variant"),
         }
     }
@@ -201,11 +204,14 @@ mod tests {
     #[test]
     fn test_feluda_error_from_reqwest() {
         let client = reqwest::blocking::Client::new();
-        let reqwest_err = client.get("http://invalid-url-that-does-not-exist.local").send().unwrap_err();
+        let reqwest_err = client
+            .get("http://invalid-url-that-does-not-exist.local")
+            .send()
+            .unwrap_err();
         let feluda_err: FeludaError = reqwest_err.into();
-        
+
         match feluda_err {
-            FeludaError::Http(_) => {}, // Expected
+            FeludaError::Http(_) => {} // Expected
             _ => panic!("Expected HTTP error variant"),
         }
     }
@@ -213,25 +219,23 @@ mod tests {
     #[test]
     fn test_with_debug_function() {
         set_debug_mode(true);
-        
+
         let result = with_debug("Test operation", || {
             std::thread::sleep(std::time::Duration::from_millis(1));
             "completed"
         });
-        
+
         assert_eq!(result, "completed");
-        
+
         set_debug_mode(false);
     }
 
     #[test]
     fn test_with_debug_function_disabled() {
         set_debug_mode(false);
-        
-        let result = with_debug("Test operation", || {
-            "completed without debug"
-        });
-        
+
+        let result = with_debug("Test operation", || "completed without debug");
+
         assert_eq!(result, "completed without debug");
     }
 
@@ -243,7 +247,7 @@ mod tests {
         log(LogLevel::Warn, "Test warning");
         log(LogLevel::Error, "Test error");
         log(LogLevel::Trace, "Test trace");
-        
+
         log_error("Test context", &"Test error");
         log_debug("Test context", &"Test value");
     }
@@ -256,23 +260,23 @@ mod tests {
         log(LogLevel::Warn, "Test warning");
         log(LogLevel::Error, "Test error");
         log(LogLevel::Trace, "Test trace");
-        
+
         log_error("Test context", &"Test error");
         log_debug("Test context", &vec![1, 2, 3]);
-        
+
         set_debug_mode(false);
     }
 
     #[test]
     fn test_feluda_error_log() {
         set_debug_mode(true);
-        
+
         let error = FeludaError::Config("Test error".to_string());
         error.log();
-        
+
         let error2 = FeludaError::Unknown("Another test".to_string());
         error2.log();
-        
+
         set_debug_mode(false);
     }
 
@@ -281,7 +285,7 @@ mod tests {
         fn test_function() -> FeludaResult<String> {
             Ok("success".to_string())
         }
-        
+
         let result = test_function();
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "success");
@@ -292,7 +296,7 @@ mod tests {
         fn test_function() -> FeludaResult<String> {
             Err(FeludaError::Config("Test failure".to_string()))
         }
-        
+
         let result = test_function();
         assert!(result.is_err());
         match result.unwrap_err() {
@@ -319,23 +323,26 @@ mod tests {
     #[test]
     fn test_multiple_debug_contexts() {
         set_debug_mode(true);
-        
+
         let result1 = with_debug("First operation", || "result1");
         let result2 = with_debug("Second operation", || "result2");
-        
+
         assert_eq!(result1, "result1");
         assert_eq!(result2, "result2");
-        
+
         set_debug_mode(false);
     }
 
     #[test]
     fn test_log_with_special_characters() {
         set_debug_mode(true);
-        
-        log(LogLevel::Info, "Message with unicode: 🚀 and newlines\nand tabs\t");
+
+        log(
+            LogLevel::Info,
+            "Message with unicode: 🚀 and newlines\nand tabs\t",
+        );
         log_debug("Context with symbols", &"Special chars: !@#$%^&*()");
-        
+
         set_debug_mode(false);
     }
 }

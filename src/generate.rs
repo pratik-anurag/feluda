@@ -1163,17 +1163,18 @@ fn generate_package_url(name: &str, version: &str) -> Option<String> {
     }
 
     // Python packages: Common Python indicators
-    if name.starts_with("python-") || 
-       name.starts_with("django-") || 
-       name.starts_with("flask-") ||
-       name.starts_with("pytest-") ||
-       name.starts_with("py-") ||
-       name == "requests" ||
-       name == "numpy" ||
-       name == "pandas" ||
-       name == "click" ||
-       name == "boto3" ||
-       (name.chars().all(|c| c.is_lowercase() || c == '_') && name.contains('_')) {
+    if name.starts_with("python-")
+        || name.starts_with("django-")
+        || name.starts_with("flask-")
+        || name.starts_with("pytest-")
+        || name.starts_with("py-")
+        || name == "requests"
+        || name == "numpy"
+        || name == "pandas"
+        || name == "click"
+        || name == "boto3"
+        || (name.chars().all(|c| c.is_lowercase() || c == '_') && name.contains('_'))
+    {
         return Some(format!("https://pypi.org/project/{}/", name));
     }
 
@@ -1194,7 +1195,8 @@ fn generate_package_url(name: &str, version: &str) -> Option<String> {
        version.starts_with('^') ||
        version.starts_with('~') ||
        version == "latest" ||
-       version == "next" {
+       version == "next"
+    {
         return Some(format!("https://www.npmjs.com/package/{}", name));
     }
 

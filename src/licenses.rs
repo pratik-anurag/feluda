@@ -131,7 +131,7 @@ pub fn analyze_rust_licenses(packages: Vec<Package>) -> Vec<LicenseInfo> {
             }
 
             LicenseInfo {
-                name: package.name.clone(),
+                name: package.name.to_string(),
                 version: package.version.to_string(),
                 license: package.license.clone(),
                 is_restrictive,

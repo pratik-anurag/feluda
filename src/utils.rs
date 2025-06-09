@@ -49,7 +49,9 @@ fn is_valid_github_username(username: &str) -> bool {
     if username.starts_with('-') || username.ends_with('-') {
         return false;
     }
-    username.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    username
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
 fn is_valid_github_repo_name(repo_name: &str) -> bool {
@@ -61,7 +63,9 @@ fn is_valid_github_repo_name(repo_name: &str) -> bool {
         return false;
     }
 
-    repo_name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    repo_name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
 }
 
 fn validate_ssh_key(key_path: &Path) -> Result<(), git2::Error> {
@@ -329,7 +333,7 @@ mod tests {
         // Test malformed SSH URL
         assert_eq!(ssh_to_https_url("invalid-ssh-format"), None);
         assert_eq!(ssh_to_https_url("git@github.com"), None);
-        
+
         // These now return None with improved validation
         assert_eq!(ssh_to_https_url("git@github.com:"), None);
 
@@ -506,15 +510,9 @@ mod tests {
     #[test]
     fn test_ssh_to_https_url_case_sensitivity() {
         // Test that the function handles case correctly
-        assert_eq!(
-            ssh_to_https_url("git@GitHub.com:user/repo.git"),
-            None
-        );
+        assert_eq!(ssh_to_https_url("git@GitHub.com:user/repo.git"), None);
 
-        assert_eq!(
-            ssh_to_https_url("git@GITHUB.COM:user/repo.git"),
-            None
-        );
+        assert_eq!(ssh_to_https_url("git@GITHUB.COM:user/repo.git"), None);
 
         // Test correct case
         assert_eq!(
@@ -584,10 +582,16 @@ mod tests {
 
         // Test very long usernames/repos
         let long_username = "a".repeat(40);
-        assert_eq!(ssh_to_https_url(&format!("git@github.com:{}/repo.git", long_username)), None);
+        assert_eq!(
+            ssh_to_https_url(&format!("git@github.com:{}/repo.git", long_username)),
+            None
+        );
 
         let long_repo = "a".repeat(101);
-        assert_eq!(ssh_to_https_url(&format!("git@github.com:user/{}.git", long_repo)), None);
+        assert_eq!(
+            ssh_to_https_url(&format!("git@github.com:user/{}.git", long_repo)),
+            None
+        );
 
         // Test empty components
         assert_eq!(ssh_to_https_url("git@github.com:/repo.git"), None);
@@ -608,11 +612,14 @@ mod tests {
         );
 
         // Invalid characters in usernames
-        assert_eq!(ssh_to_https_url("git@github.com:user-name/repo.git"), Some("https://github.com/user-name/repo.git".to_string()));
-        
+        assert_eq!(
+            ssh_to_https_url("git@github.com:user-name/repo.git"),
+            Some("https://github.com/user-name/repo.git".to_string())
+        );
+
         // underscores in usernames should be invalid
         assert_eq!(ssh_to_https_url("git@github.com:user_name/repo.git"), None);
-        
+
         // Invalid characters
         assert_eq!(ssh_to_https_url("git@github.com:user@name/repo.git"), None);
         assert_eq!(ssh_to_https_url("git@github.com:user/repo@name.git"), None);
