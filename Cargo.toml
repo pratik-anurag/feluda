@@ -44,6 +44,9 @@ backtrace = { version = "0.3.74", optional = true }
 tracing = { version = "0.1.40", features = ["attributes"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 chrono = { version = "0.4", features = ["serde"] }
+git2 = "0.19"  # For Git repository cloning
+tempfile = "3.19.1"
+dirs = "5.0"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

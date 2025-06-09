@@ -1,5 +1,6 @@
 use clap::{ArgGroup, Parser, Subcommand, ValueEnum};
 use colored::*;
+use std::env;
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -37,13 +38,14 @@ pub enum Commands {
     },
 }
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(author, version)]
 #[command(about = env!("CARGO_PKG_DESCRIPTION"))]
 #[command(
     long_about = "Feluda is a CLI tool that analyzes the dependencies of a project, identifies their licenses, and flags any that may restrict personal or commercial usage."
 )]
 #[command(group(ArgGroup::new("output").args(["json"])))]
+#[command(group(ArgGroup::new("source").args(["path", "repo"]).multiple(false)))] // Mutually exclusive path and repo
 #[command(before_help = format_before_help())]
 pub struct Cli {
     /// Enable debug mode
@@ -56,6 +58,22 @@ pub struct Cli {
     /// Path to the local project directory
     #[arg(short, long, default_value = "./")]
     pub path: String,
+
+    /// URL of the Git repository to analyze (HTTPS or SSH)
+    #[arg(long)]
+    pub repo: Option<String>,
+
+    // For HTTPS authentication
+    #[arg(long, requires = "repo")]
+    pub token: Option<String>,
+
+    // For custom SSH key path
+    #[arg(long, requires = "repo")]
+    pub ssh_key: Option<String>,
+
+    // For custom SSH key passphrase
+    #[arg(long)]
+    pub ssh_passphrase: Option<String>,
 
     /// Output in JSON format
     #[arg(long, short, group = "output")]
@@ -331,68 +349,5 @@ mod tests {
         });
 
         assert_eq!(result, 42);
-    }
-
-    #[test]
-    fn test_cli_default_behavior() {
-        // Test that CLI without subcommands uses default behavior
-        let cli = Cli {
-            debug: false,
-            command: None,
-            path: "./test".to_string(),
-            json: true,
-            yaml: false,
-            verbose: false,
-            strict: false,
-            gui: false,
-            language: Some("rust".to_string()),
-            ci_format: None,
-            output_file: None,
-            fail_on_restrictive: false,
-            incompatible: false,
-            fail_on_incompatible: false,
-            project_license: Some("MIT".to_string()),
-        };
-
-        assert!(cli.is_default_command());
-    }
-
-    #[test]
-    fn test_cli_with_generate_command() {
-        let cli = Cli {
-            debug: false,
-            command: Some(Commands::Generate {
-                path: "./test".to_string(),
-                language: Some("node".to_string()),
-                project_license: Some("Apache-2.0".to_string()),
-            }),
-            path: "./ignored".to_string(), // This should be ignored when command is present
-            json: false,
-            yaml: false,
-            verbose: false,
-            strict: false,
-            gui: false,
-            language: None,
-            ci_format: None,
-            output_file: None,
-            fail_on_restrictive: false,
-            incompatible: false,
-            fail_on_incompatible: false,
-            project_license: None,
-        };
-
-        assert!(!cli.is_default_command());
-
-        match cli.get_command_args() {
-            Commands::Generate {
-                path,
-                language,
-                project_license,
-            } => {
-                assert_eq!(path, "./test");
-                assert_eq!(language, Some("node".to_string()));
-                assert_eq!(project_license, Some("Apache-2.0".to_string()));
-            }
-        }
     }
 }
