@@ -241,14 +241,313 @@ restrictive = ["TOML-1.0", "TOML-2.0"]"#,
         );
     }
 
-    // Commented out the test that would require has_env_var
-    /*
     #[test]
-    fn test_has_env_var() {
-        temp_env::with_var("FELUDA_TEST_VAR", Some("value"), || {
-            assert!(has_env_var("TEST_VAR"));
-            assert!(!has_env_var("NONEXISTENT_VAR"));
+    fn test_license_config_default() {
+        let config = LicenseConfig::default();
+        assert_eq!(config.restrictive.len(), 7);
+        assert!(config.restrictive.contains(&"GPL-3.0".to_string()));
+        assert!(config.restrictive.contains(&"AGPL-3.0".to_string()));
+        assert!(config.restrictive.contains(&"LGPL-3.0".to_string()));
+        assert!(config.restrictive.contains(&"MPL-2.0".to_string()));
+        assert!(config
+            .restrictive
+            .contains(&"SEE LICENSE IN LICENSE".to_string()));
+        assert!(config.restrictive.contains(&"CC-BY-SA-4.0".to_string()));
+        assert!(config.restrictive.contains(&"EPL-2.0".to_string()));
+    }
+
+    #[test]
+    fn test_feluda_config_default() {
+        let config = FeludaConfig::default();
+        assert_eq!(config.licenses.restrictive.len(), 7);
+    }
+
+    #[test]
+    fn test_default_restrictive_licenses() {
+        let licenses = default_restrictive_licenses();
+        assert_eq!(licenses.len(), 7);
+        assert!(licenses.contains(&"GPL-3.0".to_string()));
+        assert!(licenses.contains(&"AGPL-3.0".to_string()));
+        assert!(licenses.contains(&"LGPL-3.0".to_string()));
+        assert!(licenses.contains(&"MPL-2.0".to_string()));
+        assert!(licenses.contains(&"SEE LICENSE IN LICENSE".to_string()));
+        assert!(licenses.contains(&"CC-BY-SA-4.0".to_string()));
+        assert!(licenses.contains(&"EPL-2.0".to_string()));
+    }
+
+    #[test]
+    fn test_load_config_missing_file() {
+        temp_env::with_var("FELUDA_LICENSES_RESTRICTIVE", None::<&str>, || {
+            let dir = tempfile::tempdir().unwrap();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            let config = load_config().unwrap();
+
+            assert_eq!(config.licenses.restrictive.len(), 7);
+            assert!(config.licenses.restrictive.contains(&"GPL-3.0".to_string()));
         });
     }
-    */
+
+    #[test]
+    fn test_load_config_invalid_toml() {
+        temp_env::with_var("FELUDA_LICENSES_RESTRICTIVE", None::<&str>, || {
+            let dir = tempfile::tempdir().unwrap();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            fs::write(".feluda.toml", "invalid toml content [[[").unwrap();
+
+            let result = load_config();
+            assert!(result.is_err());
+        });
+    }
+
+    #[test]
+    fn test_load_config_partial_toml() {
+        temp_env::with_var("FELUDA_LICENSES_RESTRICTIVE", None::<&str>, || {
+            let dir = tempfile::tempdir().unwrap();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            fs::write(
+                ".feluda.toml",
+                r#"# This is a comment
+[other_section]
+some_field = "value"
+"#,
+            )
+            .unwrap();
+
+            let config = load_config().unwrap();
+
+            assert_eq!(config.licenses.restrictive.len(), 7);
+        });
+    }
+
+    #[test]
+    fn test_load_config_empty_restrictive_list() {
+        temp_env::with_var("FELUDA_LICENSES_RESTRICTIVE", None::<&str>, || {
+            let dir = tempfile::tempdir().unwrap();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            fs::write(
+                ".feluda.toml",
+                r#"[licenses]
+restrictive = []"#,
+            )
+            .unwrap();
+
+            let config = load_config().unwrap();
+            assert_eq!(config.licenses.restrictive.len(), 0);
+        });
+    }
+
+    #[test]
+    fn test_load_config_env_invalid_json() {
+        temp_env::with_var("FELUDA_LICENSES_RESTRICTIVE", Some("invalid json"), || {
+            let dir = tempfile::tempdir().unwrap();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            let result = load_config();
+            assert!(result.is_err());
+        });
+    }
+
+    #[test]
+    fn test_load_config_nested_env_variables() {
+        temp_env::with_vars(
+            vec![
+                ("FELUDA_LICENSES_RESTRICTIVE", Some(r#"["CUSTOM-1.0"]"#)),
+                ("FELUDA_OTHER_SETTING", Some("value")),
+            ],
+            || {
+                let dir = tempfile::tempdir().unwrap();
+                std::env::set_current_dir(dir.path()).unwrap();
+
+                let config = load_config().unwrap();
+                assert_eq!(config.licenses.restrictive.len(), 1);
+                assert!(config
+                    .licenses
+                    .restrictive
+                    .contains(&"CUSTOM-1.0".to_string()));
+            },
+        );
+    }
+
+    #[test]
+    fn test_load_config_precedence_order() {
+        // Test that environment variables override TOML config
+        temp_env::with_var(
+            "FELUDA_LICENSES_RESTRICTIVE",
+            Some(r#"["ENV-LICENSE"]"#),
+            || {
+                let dir = tempfile::tempdir().unwrap();
+                std::env::set_current_dir(dir.path()).unwrap();
+
+                // Create TOML with different values
+                fs::write(
+                    ".feluda.toml",
+                    r#"[licenses]
+restrictive = ["TOML-LICENSE-1", "TOML-LICENSE-2"]"#,
+                )
+                .unwrap();
+
+                let config = load_config().unwrap();
+
+                // Should use environment variable value, not TOML
+                assert_eq!(config.licenses.restrictive.len(), 1);
+                assert!(config
+                    .licenses
+                    .restrictive
+                    .contains(&"ENV-LICENSE".to_string()));
+                assert!(!config
+                    .licenses
+                    .restrictive
+                    .contains(&"TOML-LICENSE-1".to_string()));
+            },
+        );
+    }
+
+    #[test]
+    fn test_config_serialization() {
+        let config = FeludaConfig {
+            licenses: LicenseConfig {
+                restrictive: vec!["TEST-1.0".to_string(), "TEST-2.0".to_string()],
+            },
+        };
+
+        // Test that config can be serialized and deserialized
+        let serialized = toml::to_string(&config).unwrap();
+        assert!(serialized.contains("TEST-1.0"));
+        assert!(serialized.contains("TEST-2.0"));
+
+        let deserialized: FeludaConfig = toml::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.licenses.restrictive.len(), 2);
+        assert!(deserialized
+            .licenses
+            .restrictive
+            .contains(&"TEST-1.0".to_string()));
+    }
+
+    #[test]
+    fn test_config_debug_output() {
+        let config = FeludaConfig::default();
+        let debug_str = format!("{:?}", config);
+
+        assert!(debug_str.contains("FeludaConfig"));
+        assert!(debug_str.contains("licenses"));
+        assert!(debug_str.contains("restrictive"));
+    }
+
+    #[test]
+    fn test_license_config_serde() {
+        let config = LicenseConfig {
+            restrictive: vec!["MIT".to_string(), "Apache-2.0".to_string()],
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(json.contains("MIT"));
+        assert!(json.contains("Apache-2.0"));
+
+        let deserialized: LicenseConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.restrictive.len(), 2);
+    }
+
+    #[test]
+    fn test_load_config_with_comments() {
+        temp_env::with_var("FELUDA_LICENSES_RESTRICTIVE", None::<&str>, || {
+            let dir = tempfile::tempdir().unwrap();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            fs::write(
+                ".feluda.toml",
+                r#"# Feluda configuration file
+# This file configures license checking behavior
+
+[licenses]
+# List of licenses that are considered restrictive
+restrictive = [
+    "GPL-3.0",      # GNU General Public License
+    "CUSTOM-1.0",   # Custom restrictive license
+]
+"#,
+            )
+            .unwrap();
+
+            let config = load_config().unwrap();
+            assert_eq!(config.licenses.restrictive.len(), 2);
+            assert!(config.licenses.restrictive.contains(&"GPL-3.0".to_string()));
+            assert!(config
+                .licenses
+                .restrictive
+                .contains(&"CUSTOM-1.0".to_string()));
+        });
+    }
+
+    #[test]
+    fn test_load_config_env_array_format() {
+        temp_env::with_var(
+            "FELUDA_LICENSES_RESTRICTIVE",
+            Some(r#"["License-1", "License-2", "License-3"]"#),
+            || {
+                let dir = tempfile::tempdir().unwrap();
+                std::env::set_current_dir(dir.path()).unwrap();
+
+                let config = load_config().unwrap();
+                assert_eq!(config.licenses.restrictive.len(), 3);
+                assert!(config
+                    .licenses
+                    .restrictive
+                    .contains(&"License-1".to_string()));
+                assert!(config
+                    .licenses
+                    .restrictive
+                    .contains(&"License-2".to_string()));
+                assert!(config
+                    .licenses
+                    .restrictive
+                    .contains(&"License-3".to_string()));
+            },
+        );
+    }
+
+    #[test]
+    fn test_load_config_case_sensitivity() {
+        temp_env::with_vars(
+            vec![
+                ("FELUDA_LICENSES_RESTRICTIVE", None::<&str>),
+                ("OTHER_LICENSES_RESTRICTIVE", Some(r#"["WRONG-PREFIX"]"#)),
+            ],
+            || {
+                let dir = tempfile::tempdir().unwrap();
+                std::env::set_current_dir(dir.path()).unwrap();
+
+                let config = load_config().unwrap();
+
+                assert_eq!(config.licenses.restrictive.len(), 7);
+                assert!(config.licenses.restrictive.contains(&"GPL-3.0".to_string()));
+                assert!(!config
+                    .licenses
+                    .restrictive
+                    .contains(&"WRONG-PREFIX".to_string()));
+            },
+        );
+    }
+
+    #[test]
+    fn test_load_config_correct_env_var() {
+        temp_env::with_var(
+            "FELUDA_LICENSES_RESTRICTIVE",
+            Some(r#"["CUSTOM-LICENSE"]"#),
+            || {
+                let dir = tempfile::tempdir().unwrap();
+                std::env::set_current_dir(dir.path()).unwrap();
+
+                let config = load_config().unwrap();
+                assert_eq!(config.licenses.restrictive.len(), 1);
+                assert!(config
+                    .licenses
+                    .restrictive
+                    .contains(&"CUSTOM-LICENSE".to_string()));
+            },
+        );
+    }
 }

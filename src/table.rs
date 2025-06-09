@@ -343,3 +343,285 @@ fn constraint_len_calculator(items: &[LicenseInfo]) -> (u16, u16, u16, u16, u16)
     );
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_app_new() {
+        let test_data = vec![LicenseInfo {
+            name: "test_package".to_string(),
+            version: "1.0.0".to_string(),
+            license: Some("MIT".to_string()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+        }];
+
+        let app = App::new(test_data.clone(), Some("MIT".to_string()));
+
+        assert_eq!(app.items.len(), 1);
+        assert_eq!(app.project_license, Some("MIT".to_string()));
+        assert_eq!(app.state.selected(), Some(0));
+
+        let app_no_license = App::new(test_data, None);
+        assert!(app_no_license.project_license.is_none());
+    }
+
+    #[test]
+    fn test_app_new_empty_data() {
+        let test_data = vec![];
+        let app = App::new(test_data, Some("Apache-2.0".to_string()));
+
+        assert_eq!(app.items.len(), 0);
+        assert_eq!(app.project_license, Some("Apache-2.0".to_string()));
+        assert_eq!(app.state.selected(), Some(0));
+    }
+
+    #[test]
+    fn test_app_navigation() {
+        let test_data = vec![
+            LicenseInfo {
+                name: "package1".to_string(),
+                version: "1.0.0".to_string(),
+                license: Some("MIT".to_string()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Compatible,
+            },
+            LicenseInfo {
+                name: "package2".to_string(),
+                version: "2.0.0".to_string(),
+                license: Some("Apache-2.0".to_string()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Compatible,
+            },
+            LicenseInfo {
+                name: "package3".to_string(),
+                version: "3.0.0".to_string(),
+                license: Some("GPL-3.0".to_string()),
+                is_restrictive: true,
+                compatibility: LicenseCompatibility::Incompatible,
+            },
+        ];
+
+        let mut app = App::new(test_data, None);
+
+        assert_eq!(app.state.selected(), Some(0));
+
+        app.next_row();
+        assert_eq!(app.state.selected(), Some(1));
+
+        app.next_row();
+        assert_eq!(app.state.selected(), Some(2));
+
+        app.next_row();
+        assert_eq!(app.state.selected(), Some(0));
+
+        app.previous_row();
+        assert_eq!(app.state.selected(), Some(2));
+
+        app.previous_row();
+        assert_eq!(app.state.selected(), Some(1));
+
+        app.previous_row();
+        assert_eq!(app.state.selected(), Some(0));
+
+        app.previous_row();
+        assert_eq!(app.state.selected(), Some(2));
+
+        app.next_column();
+        app.previous_column();
+    }
+
+    #[test]
+    fn test_app_navigation_single_item() {
+        let test_data = vec![LicenseInfo {
+            name: "single_package".to_string(),
+            version: "1.0.0".to_string(),
+            license: Some("MIT".to_string()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+        }];
+
+        let mut app = App::new(test_data, None);
+
+        assert_eq!(app.state.selected(), Some(0));
+
+        app.next_row();
+        assert_eq!(app.state.selected(), Some(0));
+
+        app.previous_row();
+        assert_eq!(app.state.selected(), Some(0));
+    }
+
+    #[test]
+    fn test_app_navigation_empty_list() {
+        let test_data = vec![];
+        let mut app = App::new(test_data, None);
+
+        assert_eq!(app.state.selected(), Some(0));
+
+        app.next_row();
+        assert_eq!(app.state.selected(), Some(0));
+
+        app.previous_row();
+        assert_eq!(app.state.selected(), Some(0));
+    }
+
+    #[test]
+    fn test_constraint_len_calculator() {
+        let test_data = vec![
+            LicenseInfo {
+                name: "very_long_package_name_that_exceeds_normal_length".to_string(),
+                version: "1.0.0-beta.1+build.123".to_string(),
+                license: Some("MIT".to_string()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Compatible,
+            },
+            LicenseInfo {
+                name: "short".to_string(),
+                version: "2.0".to_string(),
+                license: Some("Apache-2.0".to_string()),
+                is_restrictive: true,
+                compatibility: LicenseCompatibility::Incompatible,
+            },
+        ];
+
+        let (name_len, version_len, license_len, restricted_len, compatibility_len) =
+            constraint_len_calculator(&test_data);
+
+        assert_eq!(
+            name_len,
+            "very_long_package_name_that_exceeds_normal_length".len() as u16
+        );
+        assert_eq!(version_len, "1.0.0-beta.1+build.123".len() as u16);
+        assert_eq!(license_len, "Apache-2.0".len() as u16);
+        assert_eq!(restricted_len, "false".len() as u16);
+        assert_eq!(compatibility_len, "Incompatible".len() as u16);
+    }
+
+    #[test]
+    fn test_constraint_len_calculator_empty() {
+        let test_data = vec![];
+        let (name_len, version_len, license_len, restricted_len, compatibility_len) =
+            constraint_len_calculator(&test_data);
+
+        assert_eq!(name_len, 0);
+        assert_eq!(version_len, 0);
+        assert_eq!(license_len, 0);
+        assert_eq!(restricted_len, "false".len() as u16);
+        assert_eq!(compatibility_len, "Incompatible".len() as u16);
+    }
+
+    #[test]
+    fn test_constraint_len_calculator_unicode() {
+        let test_data = vec![LicenseInfo {
+            name: "package_with_émojis_🚀_and_ünïcödé".to_string(),
+            version: "1.0.0".to_string(),
+            license: Some("MIT".to_string()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+        }];
+
+        let (name_len, _, _, _, _) = constraint_len_calculator(&test_data);
+
+        assert!(name_len > 0);
+    }
+
+    #[test]
+    fn test_constraint_len_calculator_all_compatibility_types() {
+        let test_data = vec![
+            LicenseInfo {
+                name: "compatible".to_string(),
+                version: "1.0.0".to_string(),
+                license: Some("MIT".to_string()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Compatible,
+            },
+            LicenseInfo {
+                name: "incompatible".to_string(),
+                version: "1.0.0".to_string(),
+                license: Some("GPL-3.0".to_string()),
+                is_restrictive: true,
+                compatibility: LicenseCompatibility::Incompatible,
+            },
+            LicenseInfo {
+                name: "unknown".to_string(),
+                version: "1.0.0".to_string(),
+                license: Some("Custom".to_string()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Unknown,
+            },
+        ];
+
+        let (_, _, _, _, compatibility_len) = constraint_len_calculator(&test_data);
+
+        assert_eq!(compatibility_len, "Incompatible".len() as u16);
+    }
+
+    #[test]
+    fn test_constraint_len_calculator_restrictive_values() {
+        let test_data = vec![
+            LicenseInfo {
+                name: "package".to_string(),
+                version: "1.0.0".to_string(),
+                license: Some("MIT".to_string()),
+                is_restrictive: true, // true
+                compatibility: LicenseCompatibility::Compatible,
+            },
+            LicenseInfo {
+                name: "package2".to_string(),
+                version: "1.0.0".to_string(),
+                license: Some("Apache".to_string()),
+                is_restrictive: false, // false
+                compatibility: LicenseCompatibility::Compatible,
+            },
+        ];
+
+        let (_, _, _, restricted_len, _) = constraint_len_calculator(&test_data);
+
+        assert_eq!(restricted_len, "false".len() as u16);
+    }
+
+    #[test]
+    fn test_item_height_constant() {
+        assert_eq!(ITEM_HEIGHT, 4);
+    }
+
+    #[test]
+    fn test_info_text_constant() {
+        assert_eq!(INFO_TEXT.len(), 1);
+        assert!(INFO_TEXT[0].contains("Esc"));
+        assert!(INFO_TEXT[0].contains("quit"));
+        assert!(INFO_TEXT[0].contains("move up"));
+        assert!(INFO_TEXT[0].contains("move down"));
+    }
+
+    #[test]
+    fn test_app_longest_item_lens_calculation() {
+        let test_data = vec![
+            LicenseInfo {
+                name: "short".to_string(),
+                version: "1.0".to_string(),
+                license: Some("MIT".to_string()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Compatible,
+            },
+            LicenseInfo {
+                name: "much_longer_name".to_string(),
+                version: "1.0.0-beta".to_string(),
+                license: Some("Apache-2.0".to_string()),
+                is_restrictive: true,
+                compatibility: LicenseCompatibility::Incompatible,
+            },
+        ];
+
+        let app = App::new(test_data, None);
+
+        assert_eq!(app.longest_item_lens.0, "much_longer_name".len() as u16);
+        assert_eq!(app.longest_item_lens.1, "1.0.0-beta".len() as u16);
+        assert_eq!(app.longest_item_lens.2, "Apache-2.0".len() as u16);
+        assert_eq!(app.longest_item_lens.3, "false".len() as u16);
+        assert_eq!(app.longest_item_lens.4, "Incompatible".len() as u16);
+    }
+}

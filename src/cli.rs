@@ -350,4 +350,226 @@ mod tests {
 
         assert_eq!(result, 42);
     }
+
+    #[test]
+    fn test_cli_default_values() {
+        let cli = Cli {
+            debug: false,
+            command: None,
+            path: "./".to_string(),
+            repo: None,
+            token: None,
+            ssh_key: None,
+            ssh_passphrase: None,
+            json: false,
+            yaml: false,
+            verbose: false,
+            strict: false,
+            gui: false,
+            language: None,
+            ci_format: None,
+            output_file: None,
+            fail_on_restrictive: false,
+            incompatible: false,
+            fail_on_incompatible: false,
+            project_license: None,
+        };
+
+        assert_eq!(cli.path, "./");
+        assert!(!cli.debug);
+        assert!(!cli.json);
+        assert!(!cli.strict);
+        assert!(cli.is_default_command());
+    }
+
+    #[test]
+    fn test_get_command_args_with_command() {
+        let cli = Cli {
+            debug: false,
+            command: Some(Commands::Generate {
+                path: "/test/path".to_string(),
+                language: Some("rust".to_string()),
+                project_license: Some("MIT".to_string()),
+            }),
+            path: "./".to_string(),
+            repo: None,
+            token: None,
+            ssh_key: None,
+            ssh_passphrase: None,
+            json: false,
+            yaml: false,
+            verbose: false,
+            strict: false,
+            gui: false,
+            language: None,
+            ci_format: None,
+            output_file: None,
+            fail_on_restrictive: false,
+            incompatible: false,
+            fail_on_incompatible: false,
+            project_license: None,
+        };
+
+        let cmd = cli.get_command_args();
+        match cmd {
+            Commands::Generate {
+                path,
+                language,
+                project_license,
+            } => {
+                assert_eq!(path, "/test/path");
+                assert_eq!(language, Some("rust".to_string()));
+                assert_eq!(project_license, Some("MIT".to_string()));
+            }
+        }
+        assert!(!cli.is_default_command());
+    }
+
+    #[test]
+    fn test_get_command_args_default() {
+        let cli = Cli {
+            debug: false,
+            command: None,
+            path: "./test".to_string(),
+            repo: None,
+            token: None,
+            ssh_key: None,
+            ssh_passphrase: None,
+            json: false,
+            yaml: false,
+            verbose: false,
+            strict: false,
+            gui: false,
+            language: None,
+            ci_format: None,
+            output_file: None,
+            fail_on_restrictive: false,
+            incompatible: false,
+            fail_on_incompatible: false,
+            project_license: None,
+        };
+
+        let cmd = cli.get_command_args();
+        match cmd {
+            Commands::Generate {
+                path,
+                language,
+                project_license,
+            } => {
+                assert_eq!(path, "");
+                assert_eq!(language, None);
+                assert_eq!(project_license, None);
+            }
+        }
+    }
+
+    #[test]
+    fn test_loading_indicator_new() {
+        let indicator = LoadingIndicator::new("Test message");
+        assert_eq!(indicator.message, "Test message");
+        assert!(indicator.running.load(Ordering::Relaxed));
+        assert!(indicator.handle.is_none());
+        assert_eq!(indicator.spinner_frames.len(), 10);
+    }
+
+    #[test]
+    fn test_loading_indicator_update_progress() {
+        let indicator = LoadingIndicator::new("Test");
+        indicator.update_progress("step 1");
+
+        let progress = indicator.progress.lock().unwrap();
+        assert_eq!(*progress, Some("step 1".to_string()));
+
+        drop(progress);
+        indicator.update_progress("step 2");
+
+        let progress = indicator.progress.lock().unwrap();
+        assert_eq!(*progress, Some("step 2".to_string()));
+    }
+
+    #[test]
+    fn test_with_spinner_execution() {
+        let result = with_spinner("Test operation", |indicator| {
+            indicator.update_progress("working");
+            42
+        });
+        assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn test_with_spinner_with_error() {
+        let result = std::panic::catch_unwind(|| {
+            with_spinner("Test operation", |_indicator| {
+                panic!("Test panic");
+            })
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_format_before_help() {
+        let help_text = format_before_help();
+        assert!(help_text.contains("FELUDA LICENSE CHECKER"));
+        assert!(help_text.contains("┌"));
+        assert!(help_text.contains("└"));
+        assert!(help_text.contains("│"));
+    }
+
+    #[test]
+    fn test_print_version_info() {
+        print_version_info();
+    }
+
+    #[test]
+    fn test_ci_format_enum() {
+        let github = CiFormat::Github;
+        let jenkins = CiFormat::Jenkins;
+
+        assert_ne!(format!("{:?}", github), format!("{:?}", jenkins));
+
+        let github_clone = github.clone();
+        assert_eq!(format!("{:?}", github), format!("{:?}", github_clone));
+    }
+
+    #[test]
+    fn test_commands_enum_clone() {
+        let generate_cmd = Commands::Generate {
+            path: "./".to_string(),
+            language: None,
+            project_license: None,
+        };
+
+        let cloned_cmd = generate_cmd.clone();
+
+        match (generate_cmd, cloned_cmd) {
+            (
+                Commands::Generate {
+                    path: p1,
+                    language: l1,
+                    project_license: pl1,
+                },
+                Commands::Generate {
+                    path: p2,
+                    language: l2,
+                    project_license: pl2,
+                },
+            ) => {
+                assert_eq!(p1, p2);
+                assert_eq!(l1, l2);
+                assert_eq!(pl1, pl2);
+            }
+        }
+    }
+
+    #[test]
+    fn test_loading_indicator_multiple_progress_updates() {
+        let indicator = LoadingIndicator::new("Multi-step test");
+
+        for i in 1..=5 {
+            indicator.update_progress(&format!("step {}", i));
+            let progress = indicator.progress.lock().unwrap();
+            assert_eq!(*progress, Some(format!("step {}", i)));
+            drop(progress);
+        }
+    }
 }

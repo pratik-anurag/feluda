@@ -1148,30 +1148,59 @@ fn generate_third_party_licenses_content(
 
 /// Generate package repository URL
 fn generate_package_url(name: &str, version: &str) -> Option<String> {
-    // Try to detect package type and generate appropriate URLs
-    // TODO: Combine with licenses detection function.
-
-    // Rust crates.io pattern
-    if version.chars().next().map_or(false, |c| c.is_ascii_digit()) {
-        return Some(format!("https://crates.io/crates/{}", name));
+    if name.is_empty() {
+        return None;
     }
 
-    // npm package pattern
-    if name.contains("-") || name.starts_with("@") {
+    // Go modules: domain/path structure
+    if name.contains('/') && name.contains('.') {
+        return Some(format!("https://pkg.go.dev/{}", name));
+    }
+
+    // npm scoped packages: @scope/name
+    if name.starts_with('@') && name.contains('/') {
         return Some(format!("https://www.npmjs.com/package/{}", name));
     }
 
-    // Python PyPI pattern
-    if name
-        .chars()
-        .all(|c| c.is_ascii_lowercase() || c == '_' || c == '-')
-    {
+    // Python packages: Common Python indicators
+    if name.starts_with("python-") || 
+       name.starts_with("django-") || 
+       name.starts_with("flask-") ||
+       name.starts_with("pytest-") ||
+       name.starts_with("py-") ||
+       name == "requests" ||
+       name == "numpy" ||
+       name == "pandas" ||
+       name == "click" ||
+       name == "boto3" ||
+       (name.chars().all(|c| c.is_lowercase() || c == '_') && name.contains('_')) {
         return Some(format!("https://pypi.org/project/{}/", name));
     }
 
-    // Go module pattern
-    if name.contains("/") && name.contains(".") {
-        return Some(format!("https://pkg.go.dev/{}", name));
+    // npm packages: Common JavaScript indicators
+    if name.starts_with("react-") ||
+       name.starts_with("vue-") ||
+       name.starts_with("angular-") ||
+       name.starts_with("webpack-") ||
+       name.starts_with("babel-") ||
+       name.starts_with("eslint-") ||
+       name.starts_with("express-") ||
+       name.starts_with("node-") ||
+       name == "express" ||
+       name == "lodash" ||
+       name == "axios" ||
+       name == "moment" ||
+       // npm version patterns
+       version.starts_with('^') ||
+       version.starts_with('~') ||
+       version == "latest" ||
+       version == "next" {
+        return Some(format!("https://www.npmjs.com/package/{}", name));
+    }
+
+    // Rust crates: Version starts with digit
+    if version.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+        return Some(format!("https://crates.io/crates/{}", name));
     }
 
     None
@@ -1505,5 +1534,344 @@ mod tests {
         let option = GenerateOption::ThirdPartyLicenses;
         let debug_str = format!("{:?}", option);
         assert!(debug_str.contains("ThirdPartyLicenses"));
+    }
+
+    #[test]
+    fn test_generate_option_methods() {
+        let notice = GenerateOption::Notice;
+        let licenses = GenerateOption::ThirdPartyLicenses;
+
+        assert_eq!(notice.display_name(), "NOTICE file");
+        assert_eq!(licenses.display_name(), "THIRD_PARTY_LICENSES file");
+
+        assert_eq!(notice.filename(), "NOTICE");
+        assert_eq!(licenses.filename(), "THIRD_PARTY_LICENSES");
+
+        assert_eq!(notice.extension(), "");
+        assert_eq!(licenses.extension(), ".md");
+
+        assert_eq!(notice.full_filename(), "NOTICE");
+        assert_eq!(licenses.full_filename(), "THIRD_PARTY_LICENSES.md");
+    }
+
+    #[test]
+    fn test_generate_option_copy_clone() {
+        let notice1 = GenerateOption::Notice;
+        let notice2 = notice1;
+
+        assert_eq!(notice1.display_name(), notice2.display_name());
+        assert_eq!(notice1.full_filename(), notice2.full_filename());
+    }
+
+    #[test]
+    fn test_file_exists_with_different_paths() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let path = temp_dir.path().to_str().unwrap();
+
+        // Test non-existent files
+        assert!(!file_exists(GenerateOption::Notice, path));
+        assert!(!file_exists(GenerateOption::ThirdPartyLicenses, path));
+
+        // Create NOTICE file
+        std::fs::write(temp_dir.path().join("NOTICE"), "test notice").unwrap();
+        assert!(file_exists(GenerateOption::Notice, path));
+        assert!(!file_exists(GenerateOption::ThirdPartyLicenses, path));
+
+        // Create THIRD_PARTY_LICENSES.md file
+        std::fs::write(
+            temp_dir.path().join("THIRD_PARTY_LICENSES.md"),
+            "test licenses",
+        )
+        .unwrap();
+        assert!(file_exists(GenerateOption::Notice, path));
+        assert!(file_exists(GenerateOption::ThirdPartyLicenses, path));
+    }
+
+    #[test]
+    fn test_generate_package_url() {
+        // Go modules
+        assert_eq!(
+            generate_package_url("github.com/gorilla/mux", "v1.8.0"),
+            Some("https://pkg.go.dev/github.com/gorilla/mux".to_string())
+        );
+
+        // npm scoped packages
+        assert_eq!(
+            generate_package_url("@babel/core", "7.0.0"),
+            Some("https://www.npmjs.com/package/@babel/core".to_string())
+        );
+
+        // Python packages
+        assert_eq!(
+            generate_package_url("python-dateutil", "v2.8.2"),
+            Some("https://pypi.org/project/python-dateutil/".to_string())
+        );
+        assert_eq!(
+            generate_package_url("requests", "2.28.1"),
+            Some("https://pypi.org/project/requests/".to_string())
+        );
+        assert_eq!(
+            generate_package_url("django-rest-framework", "3.14.0"),
+            Some("https://pypi.org/project/django-rest-framework/".to_string())
+        );
+
+        // npm packages
+        assert_eq!(
+            generate_package_url("express", "4.18.0"),
+            Some("https://www.npmjs.com/package/express".to_string())
+        );
+        assert_eq!(
+            generate_package_url("react-router", "6.0.0"),
+            Some("https://www.npmjs.com/package/react-router".to_string())
+        );
+
+        // npm packages
+        assert_eq!(
+            generate_package_url("some-package", "^4.18.0"),
+            Some("https://www.npmjs.com/package/some-package".to_string())
+        );
+        assert_eq!(
+            generate_package_url("another-pkg", "latest"),
+            Some("https://www.npmjs.com/package/another-pkg".to_string())
+        );
+
+        // Rust crates
+        assert_eq!(
+            generate_package_url("serde", "1.0.0"),
+            Some("https://crates.io/crates/serde".to_string())
+        );
+        assert_eq!(
+            generate_package_url("tokio", "1.28.1"),
+            Some("https://crates.io/crates/tokio".to_string())
+        );
+
+        // Unknown packages
+        assert_eq!(generate_package_url("", "1.0.0"), None);
+        assert_eq!(generate_package_url("UnknownPackage", "unknown"), None);
+    }
+
+    #[test]
+    fn test_license_templates() {
+        let mit_license = get_mit_license_text("test_package");
+        assert!(mit_license.contains("MIT License"));
+        assert!(mit_license.contains("Permission is hereby granted"));
+        assert!(mit_license.contains("free of charge"));
+        assert!(mit_license.contains("THE SOFTWARE IS PROVIDED \"AS IS\""));
+
+        let apache_license = get_apache_license_text();
+        assert!(apache_license.contains("Apache License"));
+        assert!(apache_license.contains("Version 2.0"));
+        assert!(apache_license.contains("January 2004"));
+        assert!(apache_license.contains("http://www.apache.org/licenses/"));
+
+        let bsd_license = get_bsd_license_text("test_package");
+        assert!(bsd_license.contains("BSD 3-Clause License"));
+        assert!(bsd_license.contains("Redistribution and use"));
+        assert!(bsd_license.contains("Neither the name"));
+    }
+
+    #[test]
+    fn test_generate_notice_content() {
+        let test_data = vec![
+            LicenseInfo {
+                name: "package1".to_string(),
+                version: "1.0.0".to_string(),
+                license: Some("MIT".to_string()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Compatible,
+            },
+            LicenseInfo {
+                name: "package2".to_string(),
+                version: "2.0.0".to_string(),
+                license: Some("Apache-2.0".to_string()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Compatible,
+            },
+            LicenseInfo {
+                name: "package3".to_string(),
+                version: "1.5.0".to_string(),
+                license: Some("MIT".to_string()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Compatible,
+            },
+        ];
+
+        let content = generate_notice_content(&test_data);
+
+        // Check header
+        assert!(content.contains("NOTICE"));
+        assert!(content.contains("======"));
+
+        // Check license sections
+        assert!(content.contains("MIT Licensed Components"));
+        assert!(content.contains("Apache-2.0 Licensed Components"));
+
+        // Check package listings
+        assert!(content.contains("package1 (1.0.0)"));
+        assert!(content.contains("package2 (2.0.0)"));
+        assert!(content.contains("package3 (1.5.0)"));
+
+        // Check footer
+        assert!(content.contains("Generated by: Feluda"));
+        assert!(content.contains("DISCLAIMER"));
+        assert!(content.contains("Generated at:"));
+
+        // Check dependency count
+        assert!(content.contains("3 third-party dependencies"));
+    }
+
+    #[test]
+    fn test_generate_notice_content_empty() {
+        let test_data = vec![];
+        let content = generate_notice_content(&test_data);
+
+        assert!(content.contains("NOTICE"));
+        assert!(content.contains("0 third-party dependencies"));
+        assert!(content.contains("Generated by: Feluda"));
+    }
+
+    #[test]
+    fn test_generate_notice_content_no_license() {
+        let test_data = vec![LicenseInfo {
+            name: "unknown_package".to_string(),
+            version: "1.0.0".to_string(),
+            license: None,
+            is_restrictive: true,
+            compatibility: LicenseCompatibility::Unknown,
+        }];
+
+        let content = generate_notice_content(&test_data);
+        assert!(content.contains("No License Licensed Components"));
+        assert!(content.contains("unknown_package (1.0.0)"));
+    }
+
+    #[test]
+    fn test_create_http_client() {
+        let client = create_http_client();
+        assert!(client.is_some());
+
+        if let Some(client) = client {
+            let _ = client;
+        }
+    }
+
+    #[test]
+    fn test_rate_limit_delay() {
+        let start = std::time::Instant::now();
+        rate_limit_delay();
+        let duration = start.elapsed();
+
+        // Should take at least 500ms
+        assert!(duration >= std::time::Duration::from_millis(500));
+    }
+
+    #[test]
+    fn test_generate_notice_file_creation() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let path = temp_dir.path().to_str().unwrap();
+
+        let license_data = vec![LicenseInfo {
+            name: "test_package".to_string(),
+            version: "1.0.0".to_string(),
+            license: Some("MIT".to_string()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+        }];
+
+        generate_notice_file(&license_data, path);
+
+        // Check that the file was created
+        let notice_path = temp_dir.path().join("NOTICE");
+        assert!(notice_path.exists());
+
+        // Check file contents
+        let content = std::fs::read_to_string(notice_path).unwrap();
+        assert!(content.contains("NOTICE"));
+        assert!(content.contains("test_package"));
+        assert!(content.contains("MIT"));
+    }
+
+    #[test]
+    fn test_generate_notice_file_update() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let path = temp_dir.path().to_str().unwrap();
+
+        // Create existing NOTICE file
+        let notice_path = temp_dir.path().join("NOTICE");
+        std::fs::write(&notice_path, "Old notice content").unwrap();
+
+        let license_data = vec![LicenseInfo {
+            name: "new_package".to_string(),
+            version: "2.0.0".to_string(),
+            license: Some("Apache-2.0".to_string()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+        }];
+
+        generate_notice_file(&license_data, path);
+
+        // Check that the file was updated
+        let content = std::fs::read_to_string(notice_path).unwrap();
+        assert!(content.contains("new_package"));
+        assert!(content.contains("Apache-2.0"));
+        assert!(!content.contains("Old notice content"));
+    }
+
+    #[test]
+    fn test_generate_third_party_licenses_file_creation() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let path = temp_dir.path().to_str().unwrap();
+
+        let license_data = vec![LicenseInfo {
+            name: "test_package".to_string(),
+            version: "1.0.0".to_string(),
+            license: Some("MIT".to_string()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+        }];
+
+        generate_third_party_licenses_file(&license_data, path);
+
+        // Check that the file was created
+        let licenses_path = temp_dir.path().join("THIRD_PARTY_LICENSES.md");
+        assert!(licenses_path.exists());
+
+        // Check file contents
+        let content = std::fs::read_to_string(licenses_path).unwrap();
+        assert!(content.contains("# Third-Party Licenses"));
+        assert!(content.contains("test_package"));
+        assert!(content.contains("MIT"));
+        assert!(content.contains("Legal Notice & Disclaimer"));
+    }
+
+    #[test]
+    fn test_handle_generate_command_with_empty_data() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let path = temp_dir.path().to_str().unwrap();
+
+        handle_generate_command(path.to_string(), None, None);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_enable_disable_raw_mode_windows() {
+        // On Windows, these should return Ok(())
+        assert!(enable_raw_mode().is_ok());
+        assert!(disable_raw_mode().is_ok());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_enable_disable_raw_mode_unix() {
+        // On Unix, these might fail in test environment, but should not panic
+        let _ = enable_raw_mode();
+        let _ = disable_raw_mode();
+    }
+
+    #[test]
+    fn test_fetch_actual_license_content_invalid_package() {
+        // This should return None for invalid packages
+        let result = fetch_actual_license_content("definitely_nonexistent_package_12345", "1.0.0");
+        assert!(result.is_none());
     }
 }

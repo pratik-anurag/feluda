@@ -1182,4 +1182,304 @@ mod tests {
         print_summary_footer(&license_info, None);
         // If no panic, test passes
     }
+
+    #[test]
+    fn test_report_config_default_values() {
+        let config = ReportConfig::new(
+            false, // json
+            false, // yaml
+            false, // verbose
+            false, // strict
+            None,  // ci_format
+            None,  // output_file
+            None,  // project_license
+        );
+
+        assert!(!config.json);
+        assert!(!config.yaml);
+        assert!(!config.verbose);
+        assert!(!config.strict);
+        assert!(config.ci_format.is_none());
+        assert!(config.output_file.is_none());
+        assert!(config.project_license.is_none());
+    }
+
+    #[test]
+    fn test_generate_report_all_permissive() {
+        let data = vec![
+            LicenseInfo {
+                name: "package1".to_string(),
+                version: "1.0.0".to_string(),
+                license: Some("MIT".to_string()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Compatible,
+            },
+            LicenseInfo {
+                name: "package2".to_string(),
+                version: "2.0.0".to_string(),
+                license: Some("BSD-3-Clause".to_string()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Compatible,
+            },
+        ];
+
+        let config = ReportConfig::new(
+            false,
+            false,
+            false,
+            false,
+            None,
+            None,
+            Some("MIT".to_string()),
+        );
+        let (has_restrictive, has_incompatible) = generate_report(data, config);
+
+        assert!(!has_restrictive);
+        assert!(!has_incompatible);
+    }
+
+    #[test]
+    fn test_generate_report_mixed_licenses() {
+        let data = vec![
+            LicenseInfo {
+                name: "good_package".to_string(),
+                version: "1.0.0".to_string(),
+                license: Some("MIT".to_string()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Compatible,
+            },
+            LicenseInfo {
+                name: "bad_package".to_string(),
+                version: "2.0.0".to_string(),
+                license: Some("GPL-3.0".to_string()),
+                is_restrictive: true,
+                compatibility: LicenseCompatibility::Incompatible,
+            },
+        ];
+
+        let config = ReportConfig::new(
+            false,
+            false,
+            false,
+            false,
+            None,
+            None,
+            Some("MIT".to_string()),
+        );
+        let (has_restrictive, has_incompatible) = generate_report(data, config);
+
+        assert!(has_restrictive);
+        assert!(has_incompatible);
+    }
+
+    #[test]
+    fn test_generate_report_strict_mode_filters() {
+        let data = vec![
+            LicenseInfo {
+                name: "permissive_package".to_string(),
+                version: "1.0.0".to_string(),
+                license: Some("MIT".to_string()),
+                is_restrictive: false,
+                compatibility: LicenseCompatibility::Compatible,
+            },
+            LicenseInfo {
+                name: "restrictive_package".to_string(),
+                version: "2.0.0".to_string(),
+                license: Some("GPL-3.0".to_string()),
+                is_restrictive: true,
+                compatibility: LicenseCompatibility::Incompatible,
+            },
+        ];
+
+        let config = ReportConfig::new(
+            false,
+            false,
+            false,
+            true,
+            None,
+            None,
+            Some("MIT".to_string()),
+        );
+        let (has_restrictive, has_incompatible) = generate_report(data, config);
+
+        assert!(has_restrictive);
+        assert!(has_incompatible);
+    }
+
+    #[test]
+    fn test_generate_report_json_output() {
+        let data = vec![LicenseInfo {
+            name: "test_package".to_string(),
+            version: "1.0.0".to_string(),
+            license: Some("MIT".to_string()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+        }];
+
+        let config = ReportConfig::new(true, false, false, false, None, None, None);
+        let (has_restrictive, has_incompatible) = generate_report(data, config);
+
+        assert!(!has_restrictive);
+        assert!(!has_incompatible);
+    }
+
+    #[test]
+    fn test_generate_report_yaml_output() {
+        let data = vec![LicenseInfo {
+            name: "test_package".to_string(),
+            version: "1.0.0".to_string(),
+            license: Some("MIT".to_string()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+        }];
+
+        let config = ReportConfig::new(false, true, false, false, None, None, None);
+        let (has_restrictive, has_incompatible) = generate_report(data, config);
+
+        assert!(!has_restrictive);
+        assert!(!has_incompatible);
+    }
+
+    #[test]
+    fn test_generate_report_verbose_output() {
+        let data = vec![LicenseInfo {
+            name: "test_package".to_string(),
+            version: "1.0.0".to_string(),
+            license: Some("MIT".to_string()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+        }];
+
+        let config = ReportConfig::new(
+            false,
+            false,
+            true,
+            false,
+            None,
+            None,
+            Some("MIT".to_string()),
+        );
+        let (has_restrictive, has_incompatible) = generate_report(data, config);
+
+        assert!(!has_restrictive);
+        assert!(!has_incompatible);
+    }
+
+    #[test]
+    fn test_github_output_format_stdout() {
+        let data = vec![LicenseInfo {
+            name: "restrictive_package".to_string(),
+            version: "1.0.0".to_string(),
+            license: Some("GPL-3.0".to_string()),
+            is_restrictive: true,
+            compatibility: LicenseCompatibility::Incompatible,
+        }];
+
+        let config = ReportConfig::new(
+            false,
+            false,
+            false,
+            false,
+            Some(CiFormat::Github),
+            None,
+            Some("MIT".to_string()),
+        );
+
+        let (has_restrictive, has_incompatible) = generate_report(data, config);
+        assert!(has_restrictive);
+        assert!(has_incompatible);
+    }
+
+    #[test]
+    fn test_output_github_format_file_write_error() {
+        let data = vec![LicenseInfo {
+            name: "test_package".to_string(),
+            version: "1.0.0".to_string(),
+            license: Some("MIT".to_string()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+        }];
+
+        output_github_format(
+            &data,
+            Some("/invalid/path/that/does/not/exist/output.txt"),
+            Some("MIT"),
+        );
+    }
+
+    #[test]
+    fn test_output_jenkins_format_file_write_error() {
+        let data = vec![LicenseInfo {
+            name: "test_package".to_string(),
+            version: "1.0.0".to_string(),
+            license: Some("MIT".to_string()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+        }];
+
+        output_jenkins_format(
+            &data,
+            Some("/invalid/path/that/does/not/exist/output.xml"),
+            Some("MIT"),
+        );
+    }
+
+    #[test]
+    fn test_print_restrictive_licenses_table() {
+        let data = vec![
+            LicenseInfo {
+                name: "restrictive1".to_string(),
+                version: "1.0.0".to_string(),
+                license: Some("GPL-3.0".to_string()),
+                is_restrictive: true,
+                compatibility: LicenseCompatibility::Incompatible,
+            },
+            LicenseInfo {
+                name: "restrictive2".to_string(),
+                version: "2.0.0".to_string(),
+                license: Some("AGPL-3.0".to_string()),
+                is_restrictive: true,
+                compatibility: LicenseCompatibility::Incompatible,
+            },
+        ];
+
+        let restrictive_refs: Vec<&LicenseInfo> = data.iter().collect();
+        print_restrictive_licenses_table(&restrictive_refs);
+    }
+
+    #[test]
+    fn test_table_formatter_column_width_calculation() {
+        let headers = vec!["A".to_string(), "BB".to_string(), "CCC".to_string()];
+        let mut formatter = TableFormatter::new(headers);
+
+        assert_eq!(formatter.column_widths[0], 1); // "A"
+        assert_eq!(formatter.column_widths[1], 2); // "BB"
+        assert_eq!(formatter.column_widths[2], 3); // "CCC"
+
+        let row = vec!["AAAA".to_string(), "B".to_string(), "CC".to_string()];
+        formatter.add_row(&row);
+
+        assert_eq!(formatter.column_widths[0], 4); // "AAAA"
+        assert_eq!(formatter.column_widths[1], 2); // "BB" (header is longer)
+        assert_eq!(formatter.column_widths[2], 3); // "CCC" (header is longer)
+    }
+
+    #[test]
+    fn test_report_config_debug() {
+        let config = ReportConfig::new(
+            true,
+            false,
+            true,
+            false,
+            Some(CiFormat::Github),
+            Some("test.txt".to_string()),
+            Some("MIT".to_string()),
+        );
+
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("ReportConfig"));
+        assert!(debug_str.contains("json: true"));
+        assert!(debug_str.contains("yaml: false"));
+        assert!(debug_str.contains("Github"));
+    }
 }

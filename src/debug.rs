@@ -133,3 +133,209 @@ impl FeludaError {
 
 /// Result type alias for Feluda operations
 pub type FeludaResult<T> = Result<T, FeludaError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_debug_mode_toggle() {
+        // Start with debug off
+        set_debug_mode(false);
+        assert!(!is_debug_mode());
+
+        // Turn on debug mode
+        set_debug_mode(true);
+        assert!(is_debug_mode());
+
+        // Turn off debug mode
+        set_debug_mode(false);
+        assert!(!is_debug_mode());
+    }
+
+    #[test]
+    fn test_log_level_as_str() {
+        assert_eq!(LogLevel::Info.as_str(), "INFO");
+        assert_eq!(LogLevel::Warn.as_str(), "WARN");
+        assert_eq!(LogLevel::Error.as_str(), "ERROR");
+        assert_eq!(LogLevel::Trace.as_str(), "TRACE");
+    }
+
+    #[test]
+    fn test_log_level_equality() {
+        assert_eq!(LogLevel::Info, LogLevel::Info);
+        assert_eq!(LogLevel::Warn, LogLevel::Warn);
+        assert_eq!(LogLevel::Error, LogLevel::Error);
+        assert_eq!(LogLevel::Trace, LogLevel::Trace);
+        
+        assert_ne!(LogLevel::Info, LogLevel::Warn);
+        assert_ne!(LogLevel::Error, LogLevel::Trace);
+    }
+
+    #[test]
+    fn test_feluda_error_variants() {
+        let io_error = FeludaError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "File not found"));
+        let config_error = FeludaError::Config("Invalid config".to_string());
+        let parser_error = FeludaError::Parser("Parse failed".to_string());
+        let license_error = FeludaError::License("License error".to_string());
+        let unknown_error = FeludaError::Unknown("Unknown issue".to_string());
+
+        assert!(io_error.to_string().contains("IO error"));
+        assert!(config_error.to_string().contains("Configuration error"));
+        assert!(parser_error.to_string().contains("Parser error"));
+        assert!(license_error.to_string().contains("License analysis error"));
+        assert!(unknown_error.to_string().contains("Unknown error"));
+    }
+
+    #[test]
+    fn test_feluda_error_from_io() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "Access denied");
+        let feluda_err: FeludaError = io_err.into();
+        
+        match feluda_err {
+            FeludaError::Io(_) => {},
+            _ => panic!("Expected IO error variant"),
+        }
+    }
+
+    #[test]
+    fn test_feluda_error_from_reqwest() {
+        let client = reqwest::blocking::Client::new();
+        let reqwest_err = client.get("http://invalid-url-that-does-not-exist.local").send().unwrap_err();
+        let feluda_err: FeludaError = reqwest_err.into();
+        
+        match feluda_err {
+            FeludaError::Http(_) => {}, // Expected
+            _ => panic!("Expected HTTP error variant"),
+        }
+    }
+
+    #[test]
+    fn test_with_debug_function() {
+        set_debug_mode(true);
+        
+        let result = with_debug("Test operation", || {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            "completed"
+        });
+        
+        assert_eq!(result, "completed");
+        
+        set_debug_mode(false);
+    }
+
+    #[test]
+    fn test_with_debug_function_disabled() {
+        set_debug_mode(false);
+        
+        let result = with_debug("Test operation", || {
+            "completed without debug"
+        });
+        
+        assert_eq!(result, "completed without debug");
+    }
+
+    #[test]
+    fn test_log_functions_when_debug_disabled() {
+        set_debug_mode(false);
+
+        log(LogLevel::Info, "Test message");
+        log(LogLevel::Warn, "Test warning");
+        log(LogLevel::Error, "Test error");
+        log(LogLevel::Trace, "Test trace");
+        
+        log_error("Test context", &"Test error");
+        log_debug("Test context", &"Test value");
+    }
+
+    #[test]
+    fn test_log_functions_when_debug_enabled() {
+        set_debug_mode(true);
+
+        log(LogLevel::Info, "Test message");
+        log(LogLevel::Warn, "Test warning");
+        log(LogLevel::Error, "Test error");
+        log(LogLevel::Trace, "Test trace");
+        
+        log_error("Test context", &"Test error");
+        log_debug("Test context", &vec![1, 2, 3]);
+        
+        set_debug_mode(false);
+    }
+
+    #[test]
+    fn test_feluda_error_log() {
+        set_debug_mode(true);
+        
+        let error = FeludaError::Config("Test error".to_string());
+        error.log();
+        
+        let error2 = FeludaError::Unknown("Another test".to_string());
+        error2.log();
+        
+        set_debug_mode(false);
+    }
+
+    #[test]
+    fn test_feluda_result_alias() {
+        fn test_function() -> FeludaResult<String> {
+            Ok("success".to_string())
+        }
+        
+        let result = test_function();
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "success");
+    }
+
+    #[test]
+    fn test_feluda_result_error() {
+        fn test_function() -> FeludaResult<String> {
+            Err(FeludaError::Config("Test failure".to_string()))
+        }
+        
+        let result = test_function();
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            FeludaError::Config(msg) => assert_eq!(msg, "Test failure"),
+            _ => panic!("Expected Config error"),
+        }
+    }
+
+    #[test]
+    fn test_log_level_debug_format() {
+        let info = LogLevel::Info;
+        let debug_str = format!("{:?}", info);
+        assert_eq!(debug_str, "Info");
+    }
+
+    #[test]
+    fn test_feluda_error_debug_format() {
+        let error = FeludaError::Config("test config error".to_string());
+        let debug_str = format!("{:?}", error);
+        assert!(debug_str.contains("Config"));
+        assert!(debug_str.contains("test config error"));
+    }
+
+    #[test]
+    fn test_multiple_debug_contexts() {
+        set_debug_mode(true);
+        
+        let result1 = with_debug("First operation", || "result1");
+        let result2 = with_debug("Second operation", || "result2");
+        
+        assert_eq!(result1, "result1");
+        assert_eq!(result2, "result2");
+        
+        set_debug_mode(false);
+    }
+
+    #[test]
+    fn test_log_with_special_characters() {
+        set_debug_mode(true);
+        
+        log(LogLevel::Info, "Message with unicode: 🚀 and newlines\nand tabs\t");
+        log_debug("Context with symbols", &"Special chars: !@#$%^&*()");
+        
+        set_debug_mode(false);
+    }
+}

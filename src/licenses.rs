@@ -1688,18 +1688,764 @@ restrictive = ["TOML-1.0", "TOML-2.0"]"#,
         assert!(result.is_empty());
     }
 
-    // #[test]
-    // fn test_fetch_licenses_from_github_success() {
-    //     // This test is more of an integration test and may fail if the network is unavailable
-    //     match fetch_licenses_from_github() {
-    //         Ok(licenses) => {
-    //             assert!(!licenses.is_empty());
-    //             println!("Successfully fetched {} licenses", licenses.len());
-    //         }
-    //         Err(err) => {
-    //             // This could happen in CI environments without network access
-    //             println!("Failed to fetch licenses: {}", err);
-    //         }
-    //     }
-    // }
+    #[test]
+    fn test_license_compatibility_display() {
+        assert_eq!(LicenseCompatibility::Compatible.to_string(), "Compatible");
+        assert_eq!(
+            LicenseCompatibility::Incompatible.to_string(),
+            "Incompatible"
+        );
+        assert_eq!(LicenseCompatibility::Unknown.to_string(), "Unknown");
+    }
+
+    #[test]
+    fn test_license_compatibility_equality() {
+        assert_eq!(
+            LicenseCompatibility::Compatible,
+            LicenseCompatibility::Compatible
+        );
+        assert_ne!(
+            LicenseCompatibility::Compatible,
+            LicenseCompatibility::Incompatible
+        );
+        assert_ne!(
+            LicenseCompatibility::Unknown,
+            LicenseCompatibility::Compatible
+        );
+    }
+
+    #[test]
+    fn test_license_info_methods() {
+        let info = LicenseInfo {
+            name: "test_package".to_string(),
+            version: "1.0.0".to_string(),
+            license: Some("MIT".to_string()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+        };
+
+        assert_eq!(info.name(), "test_package");
+        assert_eq!(info.version(), "1.0.0");
+        assert_eq!(info.get_license(), "MIT");
+        assert!(!info.is_restrictive());
+        assert_eq!(info.compatibility(), &LicenseCompatibility::Compatible);
+    }
+
+    #[test]
+    fn test_license_info_no_license() {
+        let info = LicenseInfo {
+            name: "test_package".to_string(),
+            version: "1.0.0".to_string(),
+            license: None,
+            is_restrictive: true,
+            compatibility: LicenseCompatibility::Unknown,
+        };
+
+        assert_eq!(info.get_license(), "No License");
+    }
+
+    #[test]
+    fn test_license_info_clone() {
+        let info = LicenseInfo {
+            name: "test_package".to_string(),
+            version: "1.0.0".to_string(),
+            license: Some("MIT".to_string()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+        };
+
+        let cloned = info.clone();
+        assert_eq!(info.name(), cloned.name());
+        assert_eq!(info.version(), cloned.version());
+        assert_eq!(info.get_license(), cloned.get_license());
+    }
+
+    #[test]
+    fn test_license_info_debug() {
+        let info = LicenseInfo {
+            name: "test_package".to_string(),
+            version: "1.0.0".to_string(),
+            license: Some("MIT".to_string()),
+            is_restrictive: false,
+            compatibility: LicenseCompatibility::Compatible,
+        };
+
+        let debug_str = format!("{:?}", info);
+        assert!(debug_str.contains("test_package"));
+        assert!(debug_str.contains("MIT"));
+        assert!(debug_str.contains("Compatible"));
+    }
+
+    #[test]
+    fn test_normalize_license_id() {
+        assert_eq!(normalize_license_id("MIT"), "MIT");
+        assert_eq!(normalize_license_id("mit"), "MIT");
+        assert_eq!(normalize_license_id("Apache 2.0"), "Apache-2.0");
+        assert_eq!(normalize_license_id("APACHE-2.0"), "Apache-2.0");
+        assert_eq!(normalize_license_id("GPL 3.0"), "GPL-3.0");
+        assert_eq!(normalize_license_id("gpl-3.0"), "GPL-3.0");
+        assert_eq!(normalize_license_id("LGPL 3.0"), "LGPL-3.0");
+        assert_eq!(normalize_license_id("MPL 2.0"), "MPL-2.0");
+        assert_eq!(normalize_license_id("BSD 3-Clause"), "BSD-3-Clause");
+        assert_eq!(normalize_license_id("BSD 2-Clause"), "BSD-2-Clause");
+        assert_eq!(normalize_license_id("Unknown License"), "Unknown License");
+        assert_eq!(normalize_license_id("  MIT  "), "MIT");
+    }
+
+    #[test]
+    fn test_is_license_compatible_mit_project() {
+        assert_eq!(
+            is_license_compatible("MIT", "MIT"),
+            LicenseCompatibility::Compatible
+        );
+        assert_eq!(
+            is_license_compatible("BSD-2-Clause", "MIT"),
+            LicenseCompatibility::Compatible
+        );
+        assert_eq!(
+            is_license_compatible("BSD-3-Clause", "MIT"),
+            LicenseCompatibility::Compatible
+        );
+        assert_eq!(
+            is_license_compatible("Apache-2.0", "MIT"),
+            LicenseCompatibility::Compatible
+        );
+        assert_eq!(
+            is_license_compatible("LGPL-3.0", "MIT"),
+            LicenseCompatibility::Compatible
+        );
+        assert_eq!(
+            is_license_compatible("MPL-2.0", "MIT"),
+            LicenseCompatibility::Compatible
+        );
+        assert_eq!(
+            is_license_compatible("GPL-3.0", "MIT"),
+            LicenseCompatibility::Incompatible
+        );
+    }
+
+    #[test]
+    fn test_is_license_compatible_apache_project() {
+        assert_eq!(
+            is_license_compatible("MIT", "Apache-2.0"),
+            LicenseCompatibility::Compatible
+        );
+        assert_eq!(
+            is_license_compatible("BSD-2-Clause", "Apache-2.0"),
+            LicenseCompatibility::Compatible
+        );
+        assert_eq!(
+            is_license_compatible("BSD-3-Clause", "Apache-2.0"),
+            LicenseCompatibility::Compatible
+        );
+        assert_eq!(
+            is_license_compatible("Apache-2.0", "Apache-2.0"),
+            LicenseCompatibility::Compatible
+        );
+        assert_eq!(
+            is_license_compatible("GPL-3.0", "Apache-2.0"),
+            LicenseCompatibility::Incompatible
+        );
+        assert_eq!(
+            is_license_compatible("LGPL-3.0", "Apache-2.0"),
+            LicenseCompatibility::Incompatible
+        );
+    }
+
+    #[test]
+    fn test_is_license_compatible_gpl_project() {
+        assert_eq!(
+            is_license_compatible("MIT", "GPL-3.0"),
+            LicenseCompatibility::Compatible
+        );
+        assert_eq!(
+            is_license_compatible("BSD-2-Clause", "GPL-3.0"),
+            LicenseCompatibility::Compatible
+        );
+        assert_eq!(
+            is_license_compatible("BSD-3-Clause", "GPL-3.0"),
+            LicenseCompatibility::Compatible
+        );
+        assert_eq!(
+            is_license_compatible("LGPL-3.0", "GPL-3.0"),
+            LicenseCompatibility::Compatible
+        );
+        assert_eq!(
+            is_license_compatible("GPL-3.0", "GPL-3.0"),
+            LicenseCompatibility::Compatible
+        );
+        assert_eq!(
+            is_license_compatible("Apache-2.0", "GPL-3.0"),
+            LicenseCompatibility::Incompatible
+        );
+    }
+
+    #[test]
+    fn test_is_license_compatible_unknown_project() {
+        assert_eq!(
+            is_license_compatible("MIT", "UNKNOWN-LICENSE"),
+            LicenseCompatibility::Unknown
+        );
+        assert_eq!(
+            is_license_compatible("GPL-3.0", "CUSTOM-LICENSE"),
+            LicenseCompatibility::Unknown
+        );
+    }
+
+    #[test]
+    fn test_is_license_compatible_case_insensitive() {
+        assert_eq!(
+            is_license_compatible("mit", "MIT"),
+            LicenseCompatibility::Compatible
+        );
+        assert_eq!(
+            is_license_compatible("MIT", "mit"),
+            LicenseCompatibility::Compatible
+        );
+        assert_eq!(
+            is_license_compatible("apache-2.0", "MIT"),
+            LicenseCompatibility::Compatible
+        );
+    }
+
+    #[test]
+    fn test_detect_project_license_mit_file() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let license_path = temp_dir.path().join("LICENSE");
+
+        std::fs::write(
+            &license_path,
+            "MIT License\n\nPermission is hereby granted, free of charge...",
+        )
+        .unwrap();
+
+        let result = detect_project_license(temp_dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(result, Some("MIT".to_string()));
+    }
+
+    #[test]
+    fn test_detect_project_license_apache_file() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let license_path = temp_dir.path().join("LICENSE");
+
+        std::fs::write(&license_path, "Apache License\nVersion 2.0, January 2004").unwrap();
+
+        let result = detect_project_license(temp_dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(result, Some("Apache-2.0".to_string()));
+    }
+
+    #[test]
+    fn test_detect_project_license_gpl_file() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let license_path = temp_dir.path().join("LICENSE");
+
+        std::fs::write(
+            &license_path,
+            "GNU GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007",
+        )
+        .unwrap();
+
+        let result = detect_project_license(temp_dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(result, Some("GPL-3.0".to_string()));
+    }
+
+    #[test]
+    fn test_detect_project_license_bsd_file() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let license_path = temp_dir.path().join("LICENSE");
+
+        std::fs::write(&license_path, "BSD 3-Clause License\n\nRedistribution and use in source and binary forms... Neither the name of the copyright holder...").unwrap();
+
+        let result = detect_project_license(temp_dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(result, Some("BSD-3-Clause".to_string()));
+    }
+
+    #[test]
+    fn test_detect_project_license_lgpl_file() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let license_path = temp_dir.path().join("LICENSE");
+
+        std::fs::write(
+            &license_path,
+            "GNU LESSER GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007",
+        )
+        .unwrap();
+
+        let result = detect_project_license(temp_dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(result, Some("LGPL-3.0".to_string()));
+    }
+
+    #[test]
+    fn test_detect_project_license_mpl_file() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let license_path = temp_dir.path().join("LICENSE");
+
+        std::fs::write(
+            &license_path,
+            "Mozilla Public License Version 2.0\n\n1. Definitions",
+        )
+        .unwrap();
+
+        let result = detect_project_license(temp_dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(result, Some("MPL-2.0".to_string()));
+    }
+
+    #[test]
+    fn test_detect_project_license_package_json() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let package_json_path = temp_dir.path().join("package.json");
+
+        std::fs::write(&package_json_path, r#"{"name": "test", "license": "MIT"}"#).unwrap();
+
+        let result = detect_project_license(temp_dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(result, Some("MIT".to_string()));
+    }
+
+    #[test]
+    fn test_detect_project_license_package_json_invalid() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let package_json_path = temp_dir.path().join("package.json");
+
+        std::fs::write(&package_json_path, "invalid json content").unwrap();
+
+        let result = detect_project_license(temp_dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_detect_project_license_cargo_toml() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let cargo_toml_path = temp_dir.path().join("Cargo.toml");
+
+        std::fs::write(
+            &cargo_toml_path,
+            r#"[package]
+name = "test"
+version = "0.1.0"
+license = "MIT"
+"#,
+        )
+        .unwrap();
+
+        let result = detect_project_license(temp_dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(result, Some("MIT".to_string()));
+    }
+
+    #[test]
+    fn test_detect_project_license_cargo_toml_invalid() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let cargo_toml_path = temp_dir.path().join("Cargo.toml");
+
+        std::fs::write(&cargo_toml_path, "invalid toml [[[").unwrap();
+
+        let result = detect_project_license(temp_dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_detect_project_license_pyproject_toml() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let pyproject_toml_path = temp_dir.path().join("pyproject.toml");
+
+        std::fs::write(
+            &pyproject_toml_path,
+            r#"[project]
+name = "test"
+version = "0.1.0"
+license = "MIT"
+"#,
+        )
+        .unwrap();
+
+        let result = detect_project_license(temp_dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(result, Some("MIT".to_string()));
+    }
+
+    #[test]
+    fn test_detect_project_license_pyproject_toml_license_table() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let pyproject_toml_path = temp_dir.path().join("pyproject.toml");
+
+        std::fs::write(
+            &pyproject_toml_path,
+            r#"[project]
+name = "test"
+version = "0.1.0"
+
+[project.license]
+text = "Apache-2.0"
+"#,
+        )
+        .unwrap();
+
+        let result = detect_project_license(temp_dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(result, Some("Apache-2.0".to_string()));
+    }
+
+    #[test]
+    fn test_detect_project_license_no_license() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+
+        let result = detect_project_license(temp_dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_detect_project_license_multiple_files_precedence() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+
+        // Create multiple license sources
+        std::fs::write(
+            temp_dir.path().join("LICENSE"),
+            "MIT License\n\nPermission is hereby granted...",
+        )
+        .unwrap();
+        std::fs::write(
+            temp_dir.path().join("package.json"),
+            r#"{"license": "Apache-2.0"}"#,
+        )
+        .unwrap();
+
+        // LICENSE file should take precedence
+        let result = detect_project_license(temp_dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(result, Some("MIT".to_string()));
+    }
+
+    #[test]
+    fn test_package_json_get_all_dependencies() {
+        let package_json = PackageJson {
+            dependencies: Some({
+                let mut deps = std::collections::HashMap::new();
+                deps.insert("dep1".to_string(), "1.0.0".to_string());
+                deps.insert("dep2".to_string(), "2.0.0".to_string());
+                deps
+            }),
+            dev_dependencies: Some({
+                let mut dev_deps = std::collections::HashMap::new();
+                dev_deps.insert("dev_dep1".to_string(), "1.0.0".to_string());
+                dev_deps
+            }),
+        };
+
+        let all_deps = package_json.get_all_dependencies();
+        assert_eq!(all_deps.len(), 3);
+        assert!(all_deps.contains_key("dep1"));
+        assert!(all_deps.contains_key("dep2"));
+        assert!(all_deps.contains_key("dev_dep1"));
+        assert_eq!(all_deps.get("dep1"), Some(&"1.0.0".to_string()));
+        assert_eq!(all_deps.get("dev_dep1"), Some(&"1.0.0".to_string()));
+    }
+
+    #[test]
+    fn test_package_json_only_dev_dependencies() {
+        let package_json = PackageJson {
+            dependencies: None,
+            dev_dependencies: Some(
+                [("dev_dep1".to_string(), "1.0.0".to_string())]
+                    .iter()
+                    .cloned()
+                    .collect(),
+            ),
+        };
+
+        let all_deps = package_json.get_all_dependencies();
+        assert_eq!(all_deps.len(), 1);
+        assert!(all_deps.contains_key("dev_dep1"));
+    }
+
+    #[test]
+    fn test_go_packages_debug() {
+        let go_package = GoPackages {
+            name: "github.com/test/package".to_string(),
+            version: "v1.0.0".to_string(),
+        };
+
+        let debug_str = format!("{:?}", go_package);
+        assert!(debug_str.contains("github.com/test/package"));
+        assert!(debug_str.contains("v1.0.0"));
+    }
+
+    #[test]
+    fn test_analyze_rust_licenses_empty() {
+        let packages = vec![];
+        let result = analyze_rust_licenses(packages);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_go_dependencies_single_require() {
+        let content = "require github.com/test/pkg v1.0.0".to_string();
+        let deps = get_go_dependencies(content);
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].name, "github.com/test/pkg");
+        assert_eq!(deps[0].version, "v1.0.0");
+    }
+
+    #[test]
+    fn test_get_go_dependencies_with_comments() {
+        let content = r#"require (
+    github.com/user/repo v1.0.0 // This is a comment
+    github.com/another/pkg v2.0.0 # This is also a comment
+)"#
+        .to_string();
+
+        let deps = get_go_dependencies(content);
+        assert_eq!(deps.len(), 2);
+        assert_eq!(deps[0].name, "github.com/user/repo");
+        assert_eq!(deps[1].name, "github.com/another/pkg");
+    }
+
+    #[test]
+    fn test_get_go_dependencies_complex_versions() {
+        let content = r#"require (
+    github.com/user/repo v1.2.3-beta+build
+    github.com/another/pkg v2.0.0-rc.1
+    github.com/third/mod v0.1.0-alpha
+)"#
+        .to_string();
+
+        let deps = get_go_dependencies(content);
+        assert_eq!(deps.len(), 3);
+        assert_eq!(deps[0].version, "v1.2.3-beta+build");
+        assert_eq!(deps[1].version, "v2.0.0-rc.1");
+        assert_eq!(deps[2].version, "v0.1.0-alpha");
+    }
+
+    #[test]
+    fn test_get_go_dependencies_mixed_syntax() {
+        let content = r#"require (
+    github.com/user/repo v1.0.0
+)
+
+require github.com/single/pkg v2.0.0
+
+require (github.com/another/pkg v3.0.0)
+"#
+        .to_string();
+
+        let deps = get_go_dependencies(content);
+        assert_eq!(deps.len(), 3);
+        assert_eq!(deps[0].name, "github.com/user/repo");
+        assert_eq!(deps[1].name, "github.com/single/pkg");
+        assert_eq!(deps[2].name, "github.com/another/pkg");
+    }
+
+    #[test]
+    fn test_get_go_dependencies_empty_content() {
+        let content = "".to_string();
+        let deps = get_go_dependencies(content);
+        assert!(deps.is_empty());
+    }
+
+    #[test]
+    fn test_get_go_dependencies_no_require() {
+        let content = r#"module test
+
+go 1.19
+
+// No require section
+"#
+        .to_string();
+
+        let deps = get_go_dependencies(content);
+        assert!(deps.is_empty());
+    }
+
+    #[test]
+    fn test_extract_license_from_html_apache() {
+        let html_content = r#"
+        <html>
+            <body>
+                <section class="License">
+                    <h2 class="go-textTitle">
+                        <div>Apache-2.0</div>
+                    </h2>
+                </section>
+            </body>
+        </html>
+    "#;
+
+        let license = extract_license_from_html(html_content);
+        assert_eq!(license, Some("Apache-2.0".to_string()));
+    }
+
+    #[test]
+    fn test_extract_license_from_html_malformed() {
+        let html_content = "<invalid html>";
+        let license = extract_license_from_html(html_content);
+        assert_eq!(license, None);
+    }
+
+    #[test]
+    fn test_analyze_python_licenses_empty_file() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let requirements_path = temp_dir.path().join("requirements.txt");
+
+        std::fs::write(&requirements_path, "").unwrap();
+
+        let result = analyze_python_licenses(requirements_path.to_str().unwrap());
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_analyze_python_licenses_invalid_format() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let requirements_path = temp_dir.path().join("requirements.txt");
+
+        std::fs::write(
+            &requirements_path,
+            "invalid-line-without-version\nanother-invalid",
+        )
+        .unwrap();
+
+        let result = analyze_python_licenses(requirements_path.to_str().unwrap());
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_analyze_js_licenses_missing_file() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let package_json_path = temp_dir.path().join("nonexistent.json");
+
+        let result = analyze_js_licenses(package_json_path.to_str().unwrap());
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_analyze_go_licenses_missing_file() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let go_mod_path = temp_dir.path().join("nonexistent.mod");
+
+        let result = analyze_go_licenses(go_mod_path.to_str().unwrap());
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_license_struct_serialization() {
+        let license = License {
+            title: "MIT License".to_string(),
+            spdx_id: "MIT".to_string(),
+            permissions: vec!["commercial-use".to_string(), "modifications".to_string()],
+            conditions: vec!["include-copyright".to_string()],
+            limitations: vec!["liability".to_string(), "warranty".to_string()],
+        };
+
+        // Test serialization
+        let json = serde_json::to_string(&license).unwrap();
+        assert!(json.contains("MIT License"));
+        assert!(json.contains("commercial-use"));
+
+        // Test deserialization
+        let deserialized: License = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.title, "MIT License");
+        assert_eq!(deserialized.spdx_id, "MIT");
+        assert_eq!(deserialized.permissions.len(), 2);
+    }
+
+    #[test]
+    fn test_fetch_license_for_python_dependency_error_handling() {
+        // Test with a definitely non-existent package
+        let result =
+            fetch_license_for_python_dependency("definitely_nonexistent_package_12345", "1.0.0");
+        assert!(result.contains("Unknown") || result.contains("nonexistent"));
+    }
+
+    #[test]
+    fn test_fetch_license_for_go_dependency_error_handling() {
+        // Test with invalid package name
+        let result = fetch_license_for_go_dependency("invalid/package/name", "v1.0.0");
+        assert_eq!(result, "Unknown");
+    }
+
+    #[test]
+    fn test_license_compatibility_serde() {
+        // Test serialization of LicenseCompatibility
+        let compatible = LicenseCompatibility::Compatible;
+        let json = serde_json::to_string(&compatible).unwrap();
+        assert_eq!(json, "\"Compatible\"");
+
+        let deserialized: LicenseCompatibility = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, LicenseCompatibility::Compatible);
+    }
+
+    #[test]
+    fn test_is_license_restrictive_edge_cases() {
+        temp_env::with_var("FELUDA_LICENSES_RESTRICTIVE", None::<&str>, || {
+            let dir = tempfile::tempdir().unwrap();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            let known_licenses = std::collections::HashMap::new();
+
+            assert!(!is_license_restrictive(&None, &known_licenses));
+
+            assert!(!is_license_restrictive(
+                &Some("".to_string()),
+                &known_licenses
+            ));
+
+            assert!(!is_license_restrictive(
+                &Some("   ".to_string()),
+                &known_licenses
+            ));
+
+            assert!(is_license_restrictive(
+                &Some("No License".to_string()),
+                &known_licenses
+            ));
+
+            assert!(is_license_restrictive(
+                &Some("GPL-3.0".to_string()),
+                &known_licenses
+            ));
+            assert!(is_license_restrictive(
+                &Some("AGPL-3.0".to_string()),
+                &known_licenses
+            ));
+            assert!(is_license_restrictive(
+                &Some("LGPL-3.0".to_string()),
+                &known_licenses
+            ));
+            assert!(is_license_restrictive(
+                &Some("MPL-2.0".to_string()),
+                &known_licenses
+            ));
+
+            assert!(is_license_restrictive(
+                &Some("GPL-3.0 License".to_string()),
+                &known_licenses
+            ));
+            assert!(is_license_restrictive(
+                &Some("Some GPL-3.0 variant".to_string()),
+                &known_licenses
+            ));
+
+            assert!(!is_license_restrictive(
+                &Some("MIT".to_string()),
+                &known_licenses
+            ));
+            assert!(!is_license_restrictive(
+                &Some("Apache-2.0".to_string()),
+                &known_licenses
+            ));
+            assert!(!is_license_restrictive(
+                &Some("BSD-3-Clause".to_string()),
+                &known_licenses
+            ));
+
+            assert!(!is_license_restrictive(
+                &Some("gpl-3.0".to_string()),
+                &known_licenses
+            ));
+            assert!(!is_license_restrictive(
+                &Some("agpl-3.0".to_string()),
+                &known_licenses
+            ));
+
+            // Test unknown license
+            assert!(!is_license_restrictive(
+                &Some("Unknown-License-123".to_string()),
+                &known_licenses
+            ));
+        });
+    }
 }
