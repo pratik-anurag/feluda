@@ -114,7 +114,7 @@ fn run() -> FeludaResult<()> {
     if args.is_default_command() {
         // Default behavior: license analysis
         let config = CheckConfig {
-            path: args.path,
+            path: analysis_path.to_string_lossy().to_string(),
             json: args.json,
             yaml: args.yaml,
             verbose: args.verbose,
@@ -194,7 +194,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
     }
 
     // Parse and analyze dependencies
-    let mut analyzed_data = parse_root(&analysis_path, args.language.as_deref())
+    let mut analyzed_data = parse_root(&config.path, config.language.as_deref())
         .map_err(|e| FeludaError::Parser(format!("Failed to parse dependencies: {}", e)))?;
 
     log_debug("Analyzed dependencies", &analyzed_data);
