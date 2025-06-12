@@ -167,6 +167,9 @@ feluda generate --language rust --project-license MIT
 feluda generate --path /path/to/project/
 ```
 
+![generate-ss](https://github.com/user-attachments/assets/a965843f-7d87-4ba8-a311-c982d717a4f8)
+
+
 ### Run feluda on a github repo directly
 
 ```sh
