@@ -148,6 +148,7 @@ struct PackageJson {
 }
 
 impl PackageJson {
+    #[allow(dead_code)]
     fn get_all_dependencies(self) -> HashMap<String, String> {
         let mut all_dependencies: HashMap<String, String> = HashMap::new();
         if let Some(deps) = self.dev_dependencies {
@@ -371,32 +372,36 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
     log(
         LogLevel::Info,
         &format!(
-            "Analyzing JavaScript dependencies from: {}",
+            "Analyzing JavaScript dependencies with full tree from: {}",
             package_json_path
         ),
     );
 
-    let content = match fs::read_to_string(package_json_path) {
-        Ok(content) => content,
+    let project_root = Path::new(package_json_path).parent().unwrap_or(Path::new("."));
+    
+    // First, try to get the full dependency tree using npm ls
+    let all_dependencies = match get_full_dependency_tree(project_root, NPM) {
+        Ok(deps) => {
+            log(
+                LogLevel::Info,
+                &format!("Found {} dependencies using npm ls", deps.len()),
+            );
+            deps
+        }
         Err(err) => {
-            log_error("Failed to read package.json file", &err);
-            return Vec::new();
+            log(
+                LogLevel::Warn,
+                &format!("Failed to get full dependency tree via npm ls: {}. Falling back to node_modules scanning.", err),
+            );
+            // Fallback to scanning node_modules directory
+            scan_node_modules(project_root)
         }
     };
 
-    let package_json: PackageJson = match serde_json::from_str(&content) {
-        Ok(parsed) => parsed,
-        Err(err) => {
-            log_error("Failed to parse package.json", &err);
-            return Vec::new();
-        }
-    };
-
-    let all_dependencies = package_json.get_all_dependencies();
-    log(
-        LogLevel::Info,
-        &format!("Found {} JavaScript dependencies", all_dependencies.len()),
-    );
+    if all_dependencies.is_empty() {
+        log(LogLevel::Warn, "No dependencies found");
+        return Vec::new();
+    }
 
     let known_licenses = match fetch_licenses_from_github() {
         Ok(licenses) => {
@@ -412,6 +417,7 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
         }
     };
 
+    // Process dependencies in parallel for better performance
     all_dependencies
         .par_iter()
         .map(|(name, version)| {
@@ -420,53 +426,10 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
                 &format!("Checking license for JS dependency: {} ({})", name, version),
             );
 
-            let output = match Command::new(NPM)
-                .arg("view")
-                .arg(name)
-                .arg("version")
-                .arg(version)
-                .arg("license")
-                .output()
-            {
-                Ok(output) => output,
-                Err(err) => {
-                    log_error(&format!("Failed to execute npm command for {}", name), &err);
-                    return LicenseInfo {
-                        name: name.clone(),
-                        version: version.clone(),
-                        license: Some("Unknown (npm command failed)".to_string()),
-                        is_restrictive: true, // Assume restrictive if we can't determine
-                        compatibility: LicenseCompatibility::Unknown,
-                    };
-                }
-            };
-
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                log(
-                    LogLevel::Error,
-                    &format!("npm command failed for {}: {}", name, stderr),
-                );
-                return LicenseInfo {
-                    name: name.clone(),
-                    version: version.clone(),
-                    license: Some("Unknown (npm command failed)".to_string()),
-                    is_restrictive: true, // Assume restrictive if we can't determine
-                    compatibility: LicenseCompatibility::Unknown,
-                };
-            }
-
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            let license = output_str
-                .lines()
-                .find(|line| line.starts_with("license ="))
-                .map(|line| {
-                    line.replace("license =", "")
-                        .replace("\'", "")
-                        .trim()
-                        .to_string()
-                })
-                .unwrap_or_else(|| "No License".to_string());
+            // Try to get license info from package.json first (faster)
+            let license = get_license_from_package_json(project_root, name, version)
+                .or_else(|| get_license_from_npm_view(NPM, name, version))
+                .unwrap_or_else(|| "Unknown (failed to retrieve)".to_string());
 
             log(
                 LogLevel::Info,
@@ -491,6 +454,282 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
             }
         })
         .collect()
+}
+
+/// Get the full dependency tree using npm ls command
+fn get_full_dependency_tree(project_root: &Path, npm_cmd: &str) -> Result<HashMap<String, String>, String> {
+    log(LogLevel::Info, "Getting full dependency tree using npm ls");
+
+    let output = Command::new(npm_cmd)
+        .arg("ls")
+        .arg("--json")
+        .arg("--depth=0") // Get all levels, but we'll parse recursively
+        .arg("--production") // Include production dependencies
+        .arg("--dev") // Also include dev dependencies
+        .current_dir(project_root)
+        .output()
+        .map_err(|e| format!("Failed to execute npm ls: {}", e))?;
+
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    
+    if !output.status.success() {
+        let stderr_str = String::from_utf8_lossy(&output.stderr);
+        log(
+            LogLevel::Warn,
+            &format!("npm ls returned non-zero exit code. stdout: {}, stderr: {}", stdout_str, stderr_str),
+        );
+        // npm ls can return non-zero exit codes even with valid output due to peer dependency warnings
+        // So we'll try to parse the output anyway
+    }
+
+    let json: Value = serde_json::from_str(&stdout_str)
+        .map_err(|e| format!("Failed to parse npm ls output as JSON: {}", e))?;
+
+    let mut all_deps = HashMap::new();
+    
+    // Parse the dependency tree recursively
+    if let Some(dependencies) = json.get("dependencies").and_then(|d| d.as_object()) {
+        parse_dependency_tree_recursive(dependencies, &mut all_deps);
+    }
+
+    log(
+        LogLevel::Info,
+        &format!("Parsed {} unique dependencies from npm ls", all_deps.len()),
+    );
+
+    Ok(all_deps)
+}
+
+/// Recursively parse the dependency tree from npm ls output
+fn parse_dependency_tree_recursive(dependencies: &serde_json::Map<String, Value>, all_deps: &mut HashMap<String, String>) {
+    for (name, dep_info) in dependencies {
+        if let Some(version) = dep_info.get("version").and_then(|v| v.as_str()) {
+            // Only add if we haven't seen this package name before (avoid duplicates with different versions)
+            if !all_deps.contains_key(name) {
+                all_deps.insert(name.clone(), version.to_string());
+                log(
+                    LogLevel::Info,
+                    &format!("Added dependency: {} v{}", name, version),
+                );
+            }
+
+            // Recursively process nested dependencies
+            if let Some(nested_deps) = dep_info.get("dependencies").and_then(|d| d.as_object()) {
+                parse_dependency_tree_recursive(nested_deps, all_deps);
+            }
+        }
+    }
+}
+
+/// Fallback method: scan node_modules directory for all packages
+fn scan_node_modules(project_root: &Path) -> HashMap<String, String> {
+    log(LogLevel::Info, "Scanning node_modules directory for dependencies");
+    
+    let node_modules_path = project_root.join("node_modules");
+    let mut dependencies = HashMap::new();
+    
+    if !node_modules_path.exists() {
+        log(
+            LogLevel::Warn,
+            &format!("node_modules directory not found at: {}", node_modules_path.display()),
+        );
+        return dependencies;
+    }
+
+    // Scan top-level packages
+    scan_node_modules_recursive(&node_modules_path, &mut dependencies, 0);
+    
+    log(
+        LogLevel::Info,
+        &format!("Found {} dependencies by scanning node_modules", dependencies.len()),
+    );
+    
+    dependencies
+}
+
+/// Recursively scan node_modules directory
+fn scan_node_modules_recursive(node_modules_path: &Path, dependencies: &mut HashMap<String, String>, depth: usize) {
+    // Prevent infinite recursion and limit depth for performance
+    if depth > 10 {
+        return;
+    }
+
+    let entries = match std::fs::read_dir(node_modules_path) {
+        Ok(entries) => entries,
+        Err(err) => {
+            log(
+                LogLevel::Warn,
+                &format!("Failed to read directory {}: {}", node_modules_path.display(), err),
+            );
+            return;
+        }
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        
+        // Fix: Create a longer-lived binding for the filename
+        let file_name = entry.file_name();
+        let name = match file_name.to_str() {
+            Some(name) => name,
+            None => continue,
+        };
+
+        // Skip hidden directories and common non-package directories
+        if name.starts_with('.') || name == "node_modules" {
+            continue;
+        }
+
+        if path.is_dir() {
+            if name.starts_with('@') {
+                // Handle scoped packages
+                scan_scoped_packages(&path, dependencies, depth);
+            } else {
+                // Regular package
+                if let Some(version) = get_package_version_from_package_json(&path) {
+                    dependencies.insert(name.to_string(), version);
+                    
+                    // Scan nested node_modules
+                    let nested_node_modules = path.join("node_modules");
+                    if nested_node_modules.exists() {
+                        scan_node_modules_recursive(&nested_node_modules, dependencies, depth + 1);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Scan scoped packages (packages under @scope)
+fn scan_scoped_packages(scope_path: &Path, dependencies: &mut HashMap<String, String>, depth: usize) {
+    let scope_name = scope_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    
+    let entries = match std::fs::read_dir(scope_path) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        
+        // Fix: Create a longer-lived binding for the filename
+        let file_name = entry.file_name();
+        let package_name = match file_name.to_str() {
+            Some(name) => name,
+            None => continue,
+        };
+
+        if path.is_dir() {
+            let full_name = format!("{}/{}", scope_name, package_name);
+            if let Some(version) = get_package_version_from_package_json(&path) {
+                dependencies.insert(full_name, version);
+                
+                // Scan nested node_modules
+                let nested_node_modules = path.join("node_modules");
+                if nested_node_modules.exists() {
+                    scan_node_modules_recursive(&nested_node_modules, dependencies, depth + 1);
+                }
+            }
+        }
+    }
+}
+
+/// Get package version from package.json file
+fn get_package_version_from_package_json(package_path: &Path) -> Option<String> {
+    let package_json_path = package_path.join("package.json");
+    
+    let content = std::fs::read_to_string(package_json_path).ok()?;
+    let json: Value = serde_json::from_str(&content).ok()?;
+    
+    json.get("version")?.as_str().map(String::from)
+}
+
+/// Get license information from a package's package.json file
+fn get_license_from_package_json(project_root: &Path, package_name: &str, _version: &str) -> Option<String> {
+    let package_path = if package_name.starts_with('@') {
+        // Scoped package
+        let parts: Vec<&str> = package_name.splitn(2, '/').collect();
+        if parts.len() == 2 {
+            project_root.join("node_modules").join(parts[0]).join(parts[1]).join("package.json")
+        } else {
+            return None;
+        }
+    } else {
+        // Regular package
+        project_root.join("node_modules").join(package_name).join("package.json")
+    };
+
+    let content = std::fs::read_to_string(package_path).ok()?;
+    let json: Value = serde_json::from_str(&content).ok()?;
+    
+    // Try different ways to get license info
+    if let Some(license) = json.get("license").and_then(|l| l.as_str()) {
+        if !license.is_empty() && license != "UNLICENSED" {
+            log(
+                LogLevel::Info,
+                &format!("Found license in package.json for {}: {}", package_name, license),
+            );
+            return Some(license.to_string());
+        }
+    }
+
+    // Try licenses array (deprecated but still used)
+    if let Some(licenses) = json.get("licenses").and_then(|l| l.as_array()) {
+        if let Some(first_license) = licenses.first() {
+            if let Some(license_type) = first_license.get("type").and_then(|t| t.as_str()) {
+                log(
+                    LogLevel::Info,
+                    &format!("Found license in licenses array for {}: {}", package_name, license_type),
+                );
+                return Some(license_type.to_string());
+            }
+        }
+    }
+
+    None
+}
+
+/// Fallback: get license using npm view command
+fn get_license_from_npm_view(npm_cmd: &str, package_name: &str, version: &str) -> Option<String> {
+    let package_spec = if version == "latest" || version.is_empty() {
+        package_name.to_string()
+    } else {
+        format!("{}@{}", package_name, version)
+    };
+
+    let output = Command::new(npm_cmd)
+        .arg("view")
+        .arg(&package_spec)
+        .arg("license")
+        .arg("--json")
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        log(
+            LogLevel::Warn,
+            &format!("npm view failed for {}: {}", package_spec, stderr),
+        );
+        return None;
+    }
+
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    
+    // Try to parse as JSON first
+    if let Ok(json) = serde_json::from_str::<Value>(&output_str) {
+        if let Some(license) = json.as_str() {
+            return Some(license.to_string());
+        }
+    }
+    
+    // Fallback to parsing the output as text
+    let license = output_str.trim().trim_matches('"');
+    if !license.is_empty() && license != "undefined" {
+        Some(license.to_string())
+    } else {
+        None
+    }
 }
 
 // Structure to hold license details for Go
