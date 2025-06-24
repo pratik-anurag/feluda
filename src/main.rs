@@ -2,6 +2,7 @@ mod cli;
 mod config;
 mod debug;
 mod generate;
+mod languages;
 mod licenses;
 mod parser;
 mod reporter;

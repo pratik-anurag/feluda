@@ -1,0 +1,565 @@
+use serde_json::Value;
+use std::collections::HashMap;
+use std::fs;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use toml::Value as TomlValue;
+
+use crate::cli;
+use crate::config;
+use crate::debug::{log, log_debug, log_error, FeludaResult, LogLevel};
+use crate::licenses::{LicenseCompatibility, LicenseInfo};
+
+/// License Info
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+struct License {
+    title: String,            // The full name of the license
+    spdx_id: String,          // The SPDX identifier for the license
+    permissions: Vec<String>, // A list of permissions granted by the license
+    conditions: Vec<String>,  // A list of conditions that must be met under the license
+    limitations: Vec<String>, // A list of limitations imposed by the license
+}
+
+/// Analyze the licenses of Python dependencies
+pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
+    let mut licenses = Vec::new();
+    log(
+        LogLevel::Info,
+        &format!("Analyzing Python dependencies from: {}", package_file_path),
+    );
+
+    let known_licenses = match fetch_licenses_from_github() {
+        Ok(licenses) => {
+            log(
+                LogLevel::Info,
+                &format!("Fetched {} known licenses from GitHub", licenses.len()),
+            );
+            licenses
+        }
+        Err(err) => {
+            log_error("Failed to fetch licenses from GitHub", &err);
+            HashMap::new()
+        }
+    };
+
+    // Check if it's a pyproject.toml file
+    if package_file_path.ends_with("pyproject.toml") {
+        match fs::read_to_string(package_file_path) {
+            Ok(content) => match toml::from_str::<TomlValue>(&content) {
+                Ok(config) => {
+                    if let Some(project) = config.as_table().and_then(|t| t.get("project")) {
+                        if let Some(deps) = project
+                            .as_table()
+                            .and_then(|t| t.get("dependencies"))
+                            .and_then(|d| d.as_array())
+                        {
+                            log(
+                                LogLevel::Info,
+                                &format!("Found {} Python dependencies", deps.len()),
+                            );
+                            log_debug("Dependencies", deps);
+
+                            for dep in deps {
+                                if let Some(dep_str) = dep.as_str() {
+                                    log(
+                                        LogLevel::Info,
+                                        &format!("Processing dependency: {}", dep_str),
+                                    );
+
+                                    let (name, version) = if let Some((n, v)) = dep_str
+                                        .split_once("==")
+                                        .or_else(|| dep_str.split_once(">="))
+                                        .or_else(|| dep_str.split_once(">"))
+                                        .or_else(|| dep_str.split_once("~="))
+                                        .or_else(|| dep_str.split_once("<="))
+                                        .or_else(|| dep_str.split_once("<"))
+                                    {
+                                        (n.trim(), v.trim())
+                                    } else {
+                                        (dep_str.trim(), "latest")
+                                    };
+
+                                    let version_clean =
+                                        version.trim_matches('"').replace("^", "").replace("~", "");
+
+                                    log(
+                                        LogLevel::Info,
+                                        &format!(
+                                            "Fetching license for Python dependency: {} ({})",
+                                            name, version_clean
+                                        ),
+                                    );
+
+                                    let license_result =
+                                        fetch_license_for_python_dependency(name, &version_clean);
+                                    let license = Some(license_result);
+                                    let is_restrictive =
+                                        is_license_restrictive(&license, &known_licenses);
+
+                                    if is_restrictive {
+                                        log(
+                                            LogLevel::Warn,
+                                            &format!(
+                                                "Restrictive license found: {:?} for {}",
+                                                license, name
+                                            ),
+                                        );
+                                    }
+
+                                    licenses.push(LicenseInfo {
+                                        name: name.to_string(),
+                                        version: version_clean,
+                                        license,
+                                        is_restrictive,
+                                        compatibility: LicenseCompatibility::Unknown,
+                                    });
+                                }
+                            }
+                        } else {
+                            log(
+                                LogLevel::Warn,
+                                "Failed to find dependencies in pyproject.toml",
+                            );
+                        }
+                    } else {
+                        log(
+                            LogLevel::Warn,
+                            "No 'project' section found in pyproject.toml",
+                        );
+                    }
+                }
+                Err(err) => {
+                    log_error("Failed to parse pyproject.toml", &err);
+                }
+            },
+            Err(err) => {
+                log_error("Failed to read pyproject.toml file", &err);
+            }
+        }
+    } else {
+        log(LogLevel::Info, "Processing requirements.txt format");
+
+        match File::open(package_file_path) {
+            Ok(file) => {
+                let reader = BufReader::new(file);
+                let mut dep_count = 0;
+
+                for line_result in reader.lines() {
+                    match line_result {
+                        Ok(line) => {
+                            let parts: Vec<&str> = line.split("==").collect();
+                            if parts.len() >= 2 {
+                                let name = parts[0].to_string();
+                                let version = parts[1].to_string();
+
+                                log(
+                                    LogLevel::Info,
+                                    &format!("Processing requirement: {} {}", name, version),
+                                );
+
+                                let license_result =
+                                    fetch_license_for_python_dependency(&name, &version);
+                                let license = Some(license_result);
+                                let is_restrictive =
+                                    is_license_restrictive(&license, &known_licenses);
+
+                                if is_restrictive {
+                                    log(
+                                        LogLevel::Warn,
+                                        &format!(
+                                            "Restrictive license found: {:?} for {}",
+                                            license, name
+                                        ),
+                                    );
+                                }
+
+                                licenses.push(LicenseInfo {
+                                    name,
+                                    version,
+                                    license,
+                                    is_restrictive,
+                                    compatibility: LicenseCompatibility::Unknown,
+                                });
+
+                                dep_count += 1;
+                            } else {
+                                log(
+                                    LogLevel::Warn,
+                                    &format!("Invalid requirement line: {}", line),
+                                );
+                            }
+                        }
+                        Err(err) => {
+                            log_error("Failed to read line from requirements.txt", &err);
+                        }
+                    }
+                }
+
+                log(
+                    LogLevel::Info,
+                    &format!("Processed {} requirements from requirements.txt", dep_count),
+                );
+            }
+            Err(err) => {
+                log_error("Failed to open requirements.txt file", &err);
+            }
+        }
+    }
+
+    log(
+        LogLevel::Info,
+        &format!("Found {} Python dependencies with licenses", licenses.len()),
+    );
+    licenses
+}
+
+/// Fetch the license for a Python dependency from the Python Package Index (PyPI)
+pub fn fetch_license_for_python_dependency(name: &str, version: &str) -> String {
+    let api_url = format!("https://pypi.org/pypi/{}/{}/json", name, version);
+    log(
+        LogLevel::Info,
+        &format!("Fetching license from PyPI: {}", api_url),
+    );
+
+    match reqwest::blocking::get(&api_url) {
+        Ok(response) => {
+            let status = response.status();
+            log(
+                LogLevel::Info,
+                &format!("PyPI API response status: {}", status),
+            );
+
+            if status.is_success() {
+                match response.json::<Value>() {
+                    Ok(json) => match json["info"]["license"].as_str() {
+                        Some(license_str) if !license_str.is_empty() => {
+                            log(
+                                LogLevel::Info,
+                                &format!("License found for {}: {}", name, license_str),
+                            );
+                            license_str.to_string()
+                        }
+                        _ => {
+                            log(
+                                LogLevel::Warn,
+                                &format!("No license found for {} ({})", name, version),
+                            );
+                            format!("Unknown license for {}: {}", name, version)
+                        }
+                    },
+                    Err(err) => {
+                        log_error(
+                            &format!("Failed to parse JSON for {}: {}", name, version),
+                            &err,
+                        );
+                        String::from("Unknown")
+                    }
+                }
+            } else {
+                log(
+                    LogLevel::Error,
+                    &format!("Failed to fetch metadata for {}: HTTP {}", name, status),
+                );
+                String::from("Unknown")
+            }
+        }
+        Err(err) => {
+            log_error(&format!("Failed to fetch metadata for {}", name), &err);
+            String::from("Unknown")
+        }
+    }
+}
+
+/// Check if a license is considered restrictive based on configuration and known licenses
+fn is_license_restrictive(
+    license: &Option<String>,
+    known_licenses: &HashMap<String, License>,
+) -> bool {
+    log(
+        LogLevel::Info,
+        &format!("Checking if license is restrictive: {:?}", license),
+    );
+
+    let config = match config::load_config() {
+        Ok(cfg) => {
+            log(LogLevel::Info, "Successfully loaded configuration");
+            cfg
+        }
+        Err(e) => {
+            log_error("Error loading configuration", &e);
+            log(LogLevel::Warn, "Using default configuration");
+            config::FeludaConfig::default()
+        }
+    };
+
+    if license.as_deref() == Some("No License") {
+        log(
+            LogLevel::Warn,
+            "No license specified, considering as restrictive",
+        );
+        return true;
+    }
+
+    if let Some(license_str) = license {
+        log_debug(
+            "Checking against known licenses",
+            &known_licenses.keys().collect::<Vec<_>>(),
+        );
+
+        if let Some(license_data) = known_licenses.get(license_str) {
+            log_debug("Found license data", license_data);
+
+            const CONDITIONS: [&str; 2] = ["source-disclosure", "network-use-disclosure"];
+            let is_restrictive = CONDITIONS
+                .iter()
+                .any(|&condition| license_data.conditions.contains(&condition.to_string()));
+
+            if is_restrictive {
+                log(
+                    LogLevel::Warn,
+                    &format!("License {} is restrictive due to conditions", license_str),
+                );
+            } else {
+                log(
+                    LogLevel::Info,
+                    &format!("License {} is not restrictive", license_str),
+                );
+            }
+
+            return is_restrictive;
+        } else {
+            // Check against user-configured restrictive licenses
+            log_debug(
+                "Checking against configured restrictive licenses",
+                &config.licenses.restrictive,
+            );
+
+            let is_restrictive = config
+                .licenses
+                .restrictive
+                .iter()
+                .any(|restrictive_license| license_str.contains(restrictive_license));
+
+            if is_restrictive {
+                log(
+                    LogLevel::Warn,
+                    &format!(
+                        "License {} matches restrictive pattern in config",
+                        license_str
+                    ),
+                );
+            } else {
+                log(
+                    LogLevel::Info,
+                    &format!(
+                        "License {} does not match any restrictive pattern",
+                        license_str
+                    ),
+                );
+            }
+
+            return is_restrictive;
+        }
+    }
+
+    log(LogLevel::Warn, "No license information available");
+    false
+}
+
+/// Fetch license data from GitHub's choosealicense repository
+fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
+    log(
+        LogLevel::Info,
+        "Fetching licenses from GitHub choosealicense repository",
+    );
+
+    let licenses_url =
+        "https://raw.githubusercontent.com/github/choosealicense.com/gh-pages/_licenses/";
+
+    let licenses_map = cli::with_spinner("Fetching licenses from GitHub", |indicator| {
+        let mut licenses_map = HashMap::new();
+        let mut license_count = 0;
+
+        match reqwest::blocking::get(licenses_url) {
+            Ok(response) => {
+                if !response.status().is_success() {
+                    let status = response.status();
+                    log(
+                        LogLevel::Error,
+                        &format!("GitHub API returned error status: {}", status),
+                    );
+                    return licenses_map;
+                }
+
+                match response.text() {
+                    Ok(content) => {
+                        indicator.update_progress("parsing license list");
+
+                        let mut license_files = Vec::new();
+                        for line in content.lines() {
+                            if line.ends_with(".txt") {
+                                license_files.push(line.to_string());
+                            }
+                        }
+
+                        let total_licenses = license_files.len();
+                        indicator.update_progress(&format!("found {} licenses", total_licenses));
+
+                        for (idx, line) in license_files.iter().enumerate() {
+                            let license_name = line.replace(".txt", "");
+                            let license_url = format!("{}{}", licenses_url, line);
+
+                            log(
+                                LogLevel::Info,
+                                &format!("Fetching license: {}", license_name),
+                            );
+
+                            indicator.update_progress(&format!(
+                                "processing {}/{}: {}",
+                                idx + 1,
+                                total_licenses,
+                                license_name
+                            ));
+
+                            let license_response = match reqwest::blocking::get(&license_url) {
+                                Ok(res) => res,
+                                Err(err) => {
+                                    log_error(
+                                        &format!(
+                                            "Failed to fetch license content for {}",
+                                            license_name
+                                        ),
+                                        &err,
+                                    );
+                                    continue;
+                                }
+                            };
+
+                            if !license_response.status().is_success() {
+                                log(
+                                    LogLevel::Error,
+                                    &format!(
+                                        "Failed to fetch license {}: HTTP {}",
+                                        license_name,
+                                        license_response.status()
+                                    ),
+                                );
+                                continue;
+                            }
+
+                            let license_content = match license_response.text() {
+                                Ok(text) => text,
+                                Err(err) => {
+                                    log_error(
+                                        &format!(
+                                            "Failed to read license content for {}",
+                                            license_name
+                                        ),
+                                        &err,
+                                    );
+                                    continue;
+                                }
+                            };
+
+                            match serde_yaml::from_str::<License>(&license_content) {
+                                Ok(license) => {
+                                    licenses_map.insert(license_name, license);
+                                    license_count += 1;
+                                }
+                                Err(err) => {
+                                    log_error(
+                                        &format!(
+                                            "Failed to parse license content for {}",
+                                            license_name
+                                        ),
+                                        &err,
+                                    );
+                                }
+                            }
+                        }
+
+                        indicator.update_progress(&format!("processed {} licenses", license_count));
+                    }
+                    Err(err) => {
+                        log_error("Failed to read response text", &err);
+                    }
+                }
+            }
+            Err(err) => {
+                log_error("Failed to fetch licenses list", &err);
+            }
+        }
+
+        log(
+            LogLevel::Info,
+            &format!("Successfully fetched {} licenses", license_count),
+        );
+        licenses_map
+    });
+
+    Ok(licenses_map)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_analyze_python_licenses_pyproject_toml() {
+        let temp_dir = TempDir::new().unwrap();
+        let pyproject_toml_path = temp_dir.path().join("pyproject.toml");
+
+        std::fs::write(
+            &pyproject_toml_path,
+            r#"[project]
+    name = "test-project"
+    version = "0.1.0"
+    dependencies = [
+        "requests>=2.31.0",
+        "flask~=2.0.0"
+    ]
+    "#,
+        )
+        .unwrap();
+
+        let result = analyze_python_licenses(pyproject_toml_path.to_str().unwrap());
+        assert!(!result.is_empty());
+        assert!(result.iter().any(|info| info.name == "requests"));
+        assert!(result.iter().any(|info| info.name == "flask"));
+    }
+
+    #[test]
+    fn test_analyze_python_licenses_empty_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let requirements_path = temp_dir.path().join("requirements.txt");
+
+        std::fs::write(&requirements_path, "").unwrap();
+
+        let result = analyze_python_licenses(requirements_path.to_str().unwrap());
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_analyze_python_licenses_invalid_format() {
+        let temp_dir = TempDir::new().unwrap();
+        let requirements_path = temp_dir.path().join("requirements.txt");
+
+        std::fs::write(
+            &requirements_path,
+            "invalid-line-without-version\nanother-invalid",
+        )
+        .unwrap();
+
+        let result = analyze_python_licenses(requirements_path.to_str().unwrap());
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_fetch_license_for_python_dependency_error_handling() {
+        // Test with a definitely non-existent package
+        let result =
+            fetch_license_for_python_dependency("definitely_nonexistent_package_12345", "1.0.0");
+        assert!(result.contains("Unknown") || result.contains("nonexistent"));
+    }
+}
