@@ -1,7 +1,7 @@
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::Command;
 
@@ -24,25 +24,228 @@ struct License {
 #[derive(Deserialize, Serialize, Debug)]
 pub struct PackageJson {
     pub dependencies: Option<HashMap<String, String>>,
+    #[serde(rename = "devDependencies")]
     pub dev_dependencies: Option<HashMap<String, String>>,
+    #[serde(rename = "peerDependencies")]
+    pub peer_dependencies: Option<HashMap<String, String>>,
+    #[serde(rename = "optionalDependencies")]
+    pub optional_dependencies: Option<HashMap<String, String>>,
 }
 
 impl PackageJson {
-    #[allow(dead_code)]
-    pub fn get_all_dependencies(self) -> HashMap<String, String> {
+    /// Get all dependencies from package.json (production + dev + peer + optional)
+    pub fn get_all_dependencies(&self) -> HashMap<String, String> {
         let mut all_dependencies: HashMap<String, String> = HashMap::new();
-        if let Some(deps) = self.dev_dependencies {
-            all_dependencies.extend(deps)
-        };
-        if let Some(deps) = self.dependencies {
-            all_dependencies.extend(deps)
-        };
+        
+        if let Some(deps) = &self.dependencies {
+            all_dependencies.extend(deps.clone());
+        }
+        if let Some(dev_deps) = &self.dev_dependencies {
+            all_dependencies.extend(dev_deps.clone());
+        }
+        if let Some(peer_deps) = &self.peer_dependencies {
+            all_dependencies.extend(peer_deps.clone());
+        }
+        if let Some(opt_deps) = &self.optional_dependencies {
+            all_dependencies.extend(opt_deps.clone());
+        }
+        
         all_dependencies
+    }
+
+    /// Get production dependencies
+    #[allow(dead_code)]
+    pub fn get_production_dependencies(&self) -> HashMap<String, String> {
+        self.dependencies.clone().unwrap_or_default()
+    }
+}
+
+/// Recursive dependency resolver
+struct DependencyResolver {
+    resolved_cache: HashMap<String, PackageMetadata>,
+    processing_stack: HashSet<String>,
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+struct PackageMetadata {
+    name: String,
+    version: String,
+    license: Option<String>,
+    dependencies: HashMap<String, String>,
+}
+
+impl DependencyResolver {
+    fn new() -> Self {
+        Self {
+            resolved_cache: HashMap::new(),
+            processing_stack: HashSet::new(),
+        }
+    }
+
+    fn resolve_recursive_dependencies(
+        &mut self,
+        package_json_path: &str,
+        max_depth: usize,
+    ) -> Result<HashMap<String, String>, String> {
+        let root_package = self.parse_local_package_json(package_json_path)?;
+        let mut all_dependencies = HashMap::new();
+        
+        let to_resolve = root_package.dependencies.clone();
+        self.resolve_dependencies_recursive(to_resolve, &mut all_dependencies, 0, max_depth)?;
+        
+        Ok(all_dependencies)
+    }
+
+    fn resolve_dependencies_recursive(
+        &mut self,
+        dependencies: HashMap<String, String>,
+        all_deps: &mut HashMap<String, String>,
+        current_depth: usize,
+        max_depth: usize,
+    ) -> Result<(), String> {
+        if current_depth >= max_depth {
+            return Ok(());
+        }
+
+        for (name, version_spec) in dependencies {
+            if all_deps.contains_key(&name) || self.processing_stack.contains(&name) {
+                continue;
+            }
+
+            self.processing_stack.insert(name.clone());
+
+            match self.resolve_package_metadata(&name, &version_spec) {
+                Ok(metadata) => {
+                    all_deps.insert(name.clone(), metadata.version.clone());
+                    self.resolve_dependencies_recursive(
+                        metadata.dependencies,
+                        all_deps,
+                        current_depth + 1,
+                        max_depth,
+                    )?;
+                }
+                Err(_) => {
+                    all_deps.insert(name.clone(), clean_version_string(&version_spec));
+                }
+            }
+
+            self.processing_stack.remove(&name);
+        }
+
+        Ok(())
+    }
+
+    fn resolve_package_metadata(&mut self, name: &str, version_spec: &str) -> Result<PackageMetadata, String> {
+        let cache_key = format!("{}@{}", name, version_spec);
+        
+        if let Some(cached) = self.resolved_cache.get(&cache_key) {
+            return Ok(cached.clone());
+        }
+
+        let metadata = self.fetch_package_metadata_from_registry(name, version_spec)?;
+        self.resolved_cache.insert(cache_key, metadata.clone());
+        Ok(metadata)
+    }
+
+    fn fetch_package_metadata_from_registry(&self, name: &str, version_spec: &str) -> Result<PackageMetadata, String> {
+        let clean_version = clean_version_string(version_spec);
+        let url = if clean_version == "latest" || clean_version.is_empty() {
+            format!("https://registry.npmjs.org/{}", name)
+        } else {
+            format!("https://registry.npmjs.org/{}/{}", name, clean_version)
+        };
+
+        let response = reqwest::blocking::get(&url)
+            .map_err(|e| format!("Registry request failed: {}", e))?;
+
+        if !response.status().is_success() {
+            return Err(format!("Registry returned status: {}", response.status()));
+        }
+
+        let json: Value = response.json()
+            .map_err(|e| format!("Failed to parse registry response: {}", e))?;
+
+        self.parse_registry_metadata(&json, name, &clean_version)
+    }
+
+    fn parse_registry_metadata(&self, json: &Value, name: &str, requested_version: &str) -> Result<PackageMetadata, String> {
+        let version_to_use = if requested_version == "latest" {
+            json.get("dist-tags")
+                .and_then(|tags| tags.get("latest"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("latest")
+        } else {
+            requested_version
+        };
+
+        let version_data = if let Some(versions) = json.get("versions") {
+            if let Some(specific_version) = versions.get(version_to_use) {
+                specific_version
+            } else {
+                json
+            }
+        } else {
+            json
+        };
+
+        let license = version_data.get("license")
+            .and_then(|l| l.as_str())
+            .or_else(|| {
+                version_data.get("licenses")
+                    .and_then(|ls| ls.as_array())
+                    .and_then(|arr| arr.first())
+                    .and_then(|first| first.get("type"))
+                    .and_then(|t| t.as_str())
+            })
+            .map(String::from);
+
+        let dependencies = self.extract_dependencies_from_json(version_data, "dependencies");
+
+        Ok(PackageMetadata {
+            name: name.to_string(),
+            version: version_to_use.to_string(),
+            license,
+            dependencies,
+        })
+    }
+
+    fn extract_dependencies_from_json(&self, json: &Value, dep_type: &str) -> HashMap<String, String> {
+        json.get(dep_type)
+            .and_then(|deps| deps.as_object())
+            .map(|obj| {
+                obj.iter()
+                    .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("*").to_string()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn parse_local_package_json(&self, path: &str) -> Result<PackageMetadata, String> {
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read package.json: {}", e))?;
+
+        let json: Value = serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse package.json: {}", e))?;
+
+        let dependencies = self.extract_dependencies_from_json(&json, "dependencies");
+
+        Ok(PackageMetadata {
+            name: "root".to_string(),
+            version: "0.0.0".to_string(),
+            license: None,
+            dependencies,
+        })
     }
 }
 
 /// Analyze the licenses of JavaScript dependencies
 pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
+    analyze_js_licenses_with_options(package_json_path, true)
+}
+
+/// Analyze JavaScript dependencies
+pub fn analyze_js_licenses_with_options(package_json_path: &str, include_transient: bool) -> Vec<LicenseInfo> {
     #[cfg(windows)]
     const NPM: &str = "npm.cmd";
     #[cfg(not(windows))]
@@ -51,8 +254,8 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
     log(
         LogLevel::Info,
         &format!(
-            "Analyzing JavaScript dependencies with full tree from: {}",
-            package_json_path
+            "Analyzing JavaScript dependencies from: {} (transient: {})",
+            package_json_path, include_transient
         ),
     );
 
@@ -60,27 +263,43 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
         .parent()
         .unwrap_or(Path::new("."));
 
-    // First, try to get the full dependency tree using npm ls
-    let all_dependencies = match get_full_dependency_tree(project_root, NPM) {
-        Ok(deps) => {
+    let npm_ls_dependencies = get_full_dependency_tree(project_root, NPM);
+    
+    let all_dependencies = match npm_ls_dependencies {
+        Ok(deps) if !deps.is_empty() => {
             log(
                 LogLevel::Info,
                 &format!("Found {} dependencies using npm ls", deps.len()),
             );
             deps
         }
-        Err(err) => {
-            log(
-                LogLevel::Warn,
-                &format!("Failed to get full dependency tree via npm ls: {}. Falling back to node_modules scanning.", err),
-            );
-            // Fallback to scanning node_modules directory
-            scan_node_modules(project_root)
+        Ok(_) | Err(_) => {
+            if include_transient {
+                log(LogLevel::Info, "npm ls failed, using recursive dependency resolution");
+                
+                let mut resolver = DependencyResolver::new();
+                match resolver.resolve_recursive_dependencies(package_json_path, 8) {
+                    Ok(deps) => {
+                        log(
+                            LogLevel::Info,
+                            &format!("Found {} dependencies using recursive resolution", deps.len()),
+                        );
+                        deps
+                    }
+                    Err(err) => {
+                        log_error("Recursive resolution failed", &err);
+                        parse_package_json_dependencies(package_json_path).unwrap_or_default()
+                    }
+                }
+            } else {
+                log(LogLevel::Info, "Using direct package.json parsing (no transient deps)");
+                parse_package_json_dependencies(package_json_path).unwrap_or_default()
+            }
         }
     };
 
     if all_dependencies.is_empty() {
-        log(LogLevel::Warn, "No dependencies found");
+        log(LogLevel::Warn, "No dependencies found using any method");
         return Vec::new();
     }
 
@@ -98,7 +317,7 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
         }
     };
 
-    // Process dependencies in parallel for better performance
+    // Parallel process dependencies
     all_dependencies
         .par_iter()
         .map(|(name, version)| {
@@ -107,9 +326,9 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
                 &format!("Checking license for JS dependency: {} ({})", name, version),
             );
 
-            // Get license info from package.json
             let license = get_license_from_package_json(project_root, name, version)
                 .or_else(|| get_license_from_npm_view(NPM, name, version))
+                .or_else(|| get_license_from_npm_registry_api(name, version))
                 .unwrap_or_else(|| "Unknown (failed to retrieve)".to_string());
 
             log(
@@ -128,7 +347,7 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
 
             LicenseInfo {
                 name: name.clone(),
-                version: version.clone(),
+                version: clean_version_string(version),
                 license: Some(license),
                 is_restrictive,
                 compatibility: LicenseCompatibility::Unknown,
@@ -137,12 +356,132 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
         .collect()
 }
 
+/// Parse dependencies directly from package.json when npm ls fails
+fn parse_package_json_dependencies(package_json_path: &str) -> Result<HashMap<String, String>, String> {
+    log(
+        LogLevel::Info,
+        &format!("Parsing dependencies directly from: {}", package_json_path),
+    );
+
+    let content = std::fs::read_to_string(package_json_path)
+        .map_err(|e| format!("Failed to read package.json: {}", e))?;
+
+    let package_json: PackageJson = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse package.json: {}", e))?;
+
+    let all_deps = package_json.get_all_dependencies();
+    
+    log(
+        LogLevel::Info,
+        &format!("Found {} total dependencies in package.json", all_deps.len()),
+    );
+
+    log_debug("Dependencies from package.json", &all_deps);
+
+    Ok(all_deps)
+}
+
+/// Clean version strings from package.json
+fn clean_version_string(version: &str) -> String {
+    version
+        .trim_start_matches('^')
+        .trim_start_matches('~')
+        .trim_start_matches(">=")
+        .trim_start_matches('>')
+        .trim_start_matches("<=")
+        .trim_start_matches('<')
+        .trim_start_matches('=')
+        .split_whitespace()
+        .next()
+        .unwrap_or(version)
+        .to_string()
+}
+
+/// Get license info from npm registry API as additional fallback
+fn get_license_from_npm_registry_api(package_name: &str, version: &str) -> Option<String> {
+    log(
+        LogLevel::Info,
+        &format!("Trying npm registry API for {}", package_name),
+    );
+
+    let versions_to_try = if version == "latest" || version.is_empty() {
+        vec!["latest"]
+    } else {
+        vec![version, "latest"]
+    };
+
+    for ver in versions_to_try {
+        let url = if ver == "latest" {
+            format!("https://registry.npmjs.org/{}", package_name)
+        } else {
+            format!("https://registry.npmjs.org/{}/{}", package_name, ver)
+        };
+
+        match reqwest::blocking::get(&url) {
+            Ok(response) => {
+                if response.status().is_success() {
+                    match response.json::<Value>() {
+                        Ok(json) => {
+                            let license_paths = [
+                                vec!["license"],
+                                vec!["licenses", "0", "type"],
+                                vec!["licenses", "0"],
+                                vec!["latest", "license"],
+                            ];
+
+                            for path in &license_paths {
+                                if let Some(license_value) = get_nested_json_value(&json, path) {
+                                    if let Some(license_str) = license_value.as_str() {
+                                        if !license_str.is_empty() && license_str != "UNLICENSED" {
+                                            log(
+                                                LogLevel::Info,
+                                                &format!("Found license via registry API for {}: {}", package_name, license_str),
+                                            );
+                                            return Some(license_str.to_string());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            log_error(&format!("Failed to parse registry response for {}", package_name), &err);
+                        }
+                    }
+                }
+            }
+            Err(err) => {
+                log_error(&format!("Failed to fetch from registry for {}", package_name), &err);
+            }
+        }
+    }
+
+    None
+}
+
+/// Helper function to get nested JSON values
+fn get_nested_json_value<'a>(json: &'a Value, path: &[&str]) -> Option<&'a Value> {
+    let mut current = json;
+    for key in path {
+        current = current.get(key)?;
+    }
+    Some(current)
+}
+
 /// Get the full dependency tree using npm ls command
 fn get_full_dependency_tree(
     project_root: &Path,
     npm_cmd: &str,
 ) -> Result<HashMap<String, String>, String> {
     log(LogLevel::Info, "Getting full dependency tree using npm ls");
+
+    let node_modules_path = project_root.join("node_modules");
+    if !node_modules_path.exists() {
+        log(
+            LogLevel::Warn,
+            &format!("node_modules directory not found at: {}", node_modules_path.display()),
+        );
+        return Err("node_modules directory does not exist".to_string());
+    }
 
     let output = Command::new(npm_cmd)
         .arg("ls")
@@ -208,145 +547,7 @@ fn parse_dependency_tree_recursive(
     }
 }
 
-/// Fallback method: scan node_modules directory for all packages
-fn scan_node_modules(project_root: &Path) -> HashMap<String, String> {
-    log(
-        LogLevel::Info,
-        "Scanning node_modules directory for dependencies",
-    );
-
-    let node_modules_path = project_root.join("node_modules");
-    let mut dependencies = HashMap::new();
-
-    if !node_modules_path.exists() {
-        log(
-            LogLevel::Warn,
-            &format!(
-                "node_modules directory not found at: {}",
-                node_modules_path.display()
-            ),
-        );
-        return dependencies;
-    }
-
-    // Scan top-level packages
-    scan_node_modules_recursive(&node_modules_path, &mut dependencies, 0);
-
-    log(
-        LogLevel::Info,
-        &format!(
-            "Found {} dependencies by scanning node_modules",
-            dependencies.len()
-        ),
-    );
-
-    dependencies
-}
-
-/// Recursively scan node_modules directory
-fn scan_node_modules_recursive(
-    node_modules_path: &Path,
-    dependencies: &mut HashMap<String, String>,
-    depth: usize,
-) {
-    // Limit depth for performance
-    if depth > 10 {
-        return;
-    }
-
-    let entries = match std::fs::read_dir(node_modules_path) {
-        Ok(entries) => entries,
-        Err(err) => {
-            log(
-                LogLevel::Warn,
-                &format!(
-                    "Failed to read directory {}: {}",
-                    node_modules_path.display(),
-                    err
-                ),
-            );
-            return;
-        }
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-
-        let file_name = entry.file_name();
-        let name = match file_name.to_str() {
-            Some(name) => name,
-            None => continue,
-        };
-
-        if name.starts_with('.') || name == "node_modules" {
-            continue;
-        }
-
-        if path.is_dir() {
-            if name.starts_with('@') {
-                scan_scoped_packages(&path, dependencies, depth);
-            } else if let Some(version) = get_package_version_from_package_json(&path) {
-                dependencies.insert(name.to_string(), version);
-
-                let nested_node_modules = path.join("node_modules");
-                if nested_node_modules.exists() {
-                    scan_node_modules_recursive(&nested_node_modules, dependencies, depth + 1);
-                }
-            }
-        }
-    }
-}
-
-/// Scan scoped packages
-fn scan_scoped_packages(
-    scope_path: &Path,
-    dependencies: &mut HashMap<String, String>,
-    depth: usize,
-) {
-    let scope_name = scope_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
-
-    let entries = match std::fs::read_dir(scope_path) {
-        Ok(entries) => entries,
-        Err(_) => return,
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-
-        let file_name = entry.file_name();
-        let package_name = match file_name.to_str() {
-            Some(name) => name,
-            None => continue,
-        };
-
-        if path.is_dir() {
-            let full_name = format!("{}/{}", scope_name, package_name);
-            if let Some(version) = get_package_version_from_package_json(&path) {
-                dependencies.insert(full_name, version);
-
-                let nested_node_modules = path.join("node_modules");
-                if nested_node_modules.exists() {
-                    scan_node_modules_recursive(&nested_node_modules, dependencies, depth + 1);
-                }
-            }
-        }
-    }
-}
-
-/// Get package version from package.json file
-fn get_package_version_from_package_json(package_path: &Path) -> Option<String> {
-    let package_json_path = package_path.join("package.json");
-
-    let content = std::fs::read_to_string(package_json_path).ok()?;
-    let json: Value = serde_json::from_str(&content).ok()?;
-
-    json.get("version")?.as_str().map(String::from)
-}
-
-/// Get license information from a package's package.json file
+/// Get license information from a package's package.json
 fn get_license_from_package_json(
     project_root: &Path,
     package_name: &str,
@@ -407,11 +608,17 @@ fn get_license_from_package_json(
 
 /// Fallback: get license using npm view command
 fn get_license_from_npm_view(npm_cmd: &str, package_name: &str, version: &str) -> Option<String> {
-    let package_spec = if version == "latest" || version.is_empty() {
+    let clean_version = clean_version_string(version);
+    let package_spec = if clean_version == "latest" || clean_version.is_empty() {
         package_name.to_string()
     } else {
-        format!("{}@{}", package_name, version)
+        format!("{}@{}", package_name, clean_version)
     };
+
+    log(
+        LogLevel::Info,
+        &format!("Trying npm view for: {}", package_spec),
+    );
 
     let output = Command::new(npm_cmd)
         .arg("view")
@@ -446,7 +653,7 @@ fn get_license_from_npm_view(npm_cmd: &str, package_name: &str, version: &str) -
     }
 }
 
-/// Check if a license is considered restrictive based on configuration and known licenses
+/// Check if a license is considered restrictive
 fn is_license_restrictive(
     license: &Option<String>,
     known_licenses: &HashMap<String, License>,
@@ -682,75 +889,98 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
+    fn test_package_json_parsing() {
+        let temp_dir = TempDir::new().unwrap();
+        let package_json_path = temp_dir.path().join("package.json");
+
+        let test_package_json = r#"{
+            "name": "remix-example",
+            "version": "0.1.0",
+            "dependencies": {
+                "@remix-run/express": "^2.16.0",
+                "react": "^18.3.1"
+            },
+            "devDependencies": {
+                "@remix-run/dev": "^2.16.0",
+                "typescript": "^5.8.2"
+            }
+        }"#;
+
+        std::fs::write(&package_json_path, test_package_json).unwrap();
+
+        let result = parse_package_json_dependencies(package_json_path.to_str().unwrap()).unwrap();
+        
+        assert_eq!(result.len(), 4);
+        assert!(result.contains_key("@remix-run/express"));
+        assert!(result.contains_key("react"));
+        assert!(result.contains_key("@remix-run/dev"));
+        assert!(result.contains_key("typescript"));
+    }
+
+    #[test]
+    fn test_clean_version_string() {
+        assert_eq!(clean_version_string("^2.16.0"), "2.16.0");
+        assert_eq!(clean_version_string("~18.3.1"), "18.3.1");
+        assert_eq!(clean_version_string(">=1.0.0"), "1.0.0");
+        assert_eq!(clean_version_string("<=2.0.0"), "2.0.0");
+        assert_eq!(clean_version_string("1.2.3"), "1.2.3");
+        assert_eq!(clean_version_string("latest"), "latest");
+    }
+
+    #[test]
     fn test_package_json_get_all_dependencies() {
         let package_json = PackageJson {
             dependencies: Some({
-                let mut deps = std::collections::HashMap::new();
+                let mut deps = HashMap::new();
                 deps.insert("dep1".to_string(), "1.0.0".to_string());
-                deps.insert("dep2".to_string(), "2.0.0".to_string());
                 deps
             }),
             dev_dependencies: Some({
-                let mut dev_deps = std::collections::HashMap::new();
+                let mut dev_deps = HashMap::new();
                 dev_deps.insert("dev_dep1".to_string(), "1.0.0".to_string());
                 dev_deps
+            }),
+            peer_dependencies: Some({
+                let mut peer_deps = HashMap::new();
+                peer_deps.insert("peer_dep1".to_string(), "1.0.0".to_string());
+                peer_deps
+            }),
+            optional_dependencies: Some({
+                let mut opt_deps = HashMap::new();
+                opt_deps.insert("opt_dep1".to_string(), "1.0.0".to_string());
+                opt_deps
             }),
         };
 
         let all_deps = package_json.get_all_dependencies();
-        assert_eq!(all_deps.len(), 3);
+        assert_eq!(all_deps.len(), 4);
         assert!(all_deps.contains_key("dep1"));
-        assert!(all_deps.contains_key("dep2"));
         assert!(all_deps.contains_key("dev_dep1"));
+        assert!(all_deps.contains_key("peer_dep1"));
+        assert!(all_deps.contains_key("opt_dep1"));
     }
 
     #[test]
-    fn test_analyze_js_licenses_empty_file() {
+    fn test_analyze_js_licenses_with_options() {
         let temp_dir = TempDir::new().unwrap();
         let package_json_path = temp_dir.path().join("package.json");
 
         std::fs::write(
             &package_json_path,
-            r#"{
-                "name": "test-project",
-                "version": "1.0.0"
-            }"#,
+            r#"{"name": "test", "version": "1.0.0", "dependencies": {}}"#,
         )
         .unwrap();
 
-        let result = analyze_js_licenses(package_json_path.to_str().unwrap());
-        assert!(result.is_empty());
-    }
+        let result_with_transient = analyze_js_licenses_with_options(
+            package_json_path.to_str().unwrap(), 
+            true
+        );
+        let result_without_transient = analyze_js_licenses_with_options(
+            package_json_path.to_str().unwrap(), 
+            false
+        );
 
-    #[test]
-    fn test_get_package_version_from_package_json() {
-        let temp_dir = TempDir::new().unwrap();
-        let package_path = temp_dir.path();
-
-        std::fs::write(
-            package_path.join("package.json"),
-            r#"{"name": "test", "version": "1.2.3"}"#,
-        )
-        .unwrap();
-
-        let version = get_package_version_from_package_json(package_path);
-        assert_eq!(version, Some("1.2.3".to_string()));
-    }
-
-    #[test]
-    fn test_get_license_from_package_json() {
-        let temp_dir = TempDir::new().unwrap();
-        let node_modules = temp_dir.path().join("node_modules");
-        let package_dir = node_modules.join("test-package");
-
-        std::fs::create_dir_all(&package_dir).unwrap();
-        std::fs::write(
-            package_dir.join("package.json"),
-            r#"{"name": "test-package", "version": "1.0.0", "license": "MIT"}"#,
-        )
-        .unwrap();
-
-        let license = get_license_from_package_json(temp_dir.path(), "test-package", "1.0.0");
-        assert_eq!(license, Some("MIT".to_string()));
+        assert!(result_with_transient.is_empty());
+        assert!(result_without_transient.is_empty());
     }
 }
