@@ -11,17 +11,27 @@ _Minimum Supported Rust Version: `1.70.0`_
 ```sh
 feluda/
 ├── src/
-│   ├── main.rs          # CLI entry point
-│   ├── cli.rs           # CLI argument handling
-│   ├── config.rs        # Configuration management
-│   ├── debug.rs         # Debug and logging utilities
-│   ├── parser.rs        # Dependency parsing logic
-│   ├── licenses.rs      # License analysis
-│   ├── reporter.rs      # Output formatting and reporting
-│   └── table.rs         # TUI components
-├── Cargo.toml           # Project metadata
-├── LICENSE              # Project license
-└── README.md            # Project documentation
+│   ├── main.rs              # Entry point
+│   ├── cli.rs               # CLI argument handling
+│   ├── config.rs            # Configuration management
+│   ├── debug.rs             # Debug and logging utilities
+│   ├── parser.rs            # Dependency parsing coordination
+│   ├── licenses.rs          # License analysis and compatibility
+│   ├── reporter.rs          # Output formatting and reporting
+│   ├── table.rs             # TUI components
+│   ├── generate.rs          # License file generation
+│   ├── utils.rs             # Git repository utilities
+│   └── languages/           # Language-specific parsers
+│       ├── mod.rs           # Language detection and common traits
+│       ├── rust.rs          # Rust/Cargo support
+│       ├── node.rs          # Node.js/npm support
+│       ├── go.rs            # Go modules support
+│       └── python.rs        # Python package support
+├── Cargo.toml               # Project metadata
+├── LICENSE                  # Project license
+├── README.md                # Project documentation
+├── justfile                 # Build automation
+└── CONTRIBUTING.md
 ```
 
 ### Setting Up for Development
@@ -131,7 +141,7 @@ fn my_function() -> FeludaResult<MyType> {
 1. Create a new branch for your feature or bugfix:
 
 ```sh
-git checkout -b feature/my-new-feature
+git checkout -b feat/my-new-feature
 ```
 
 2. Commit your changes with a meaningful commit message:
@@ -143,7 +153,7 @@ git commit -m "Add support for XYZ feature"
 3. Push the branch to your fork:
 
 ```sh
-git push origin feature/my-new-feature
+git push origin feat/my-new-feature
 ```
 
 4. Open a pull request on GitHub.
