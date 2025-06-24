@@ -36,7 +36,7 @@ impl PackageJson {
     /// Get all dependencies from package.json (production + dev + peer + optional)
     pub fn get_all_dependencies(&self) -> HashMap<String, String> {
         let mut all_dependencies: HashMap<String, String> = HashMap::new();
-        
+
         if let Some(deps) = &self.dependencies {
             all_dependencies.extend(deps.clone());
         }
@@ -49,7 +49,7 @@ impl PackageJson {
         if let Some(opt_deps) = &self.optional_dependencies {
             all_dependencies.extend(opt_deps.clone());
         }
-        
+
         all_dependencies
     }
 
@@ -90,10 +90,10 @@ impl DependencyResolver {
     ) -> Result<HashMap<String, String>, String> {
         let root_package = self.parse_local_package_json(package_json_path)?;
         let mut all_dependencies = HashMap::new();
-        
+
         let to_resolve = root_package.dependencies.clone();
         self.resolve_dependencies_recursive(to_resolve, &mut all_dependencies, 0, max_depth)?;
-        
+
         Ok(all_dependencies)
     }
 
@@ -136,9 +136,13 @@ impl DependencyResolver {
         Ok(())
     }
 
-    fn resolve_package_metadata(&mut self, name: &str, version_spec: &str) -> Result<PackageMetadata, String> {
+    fn resolve_package_metadata(
+        &mut self,
+        name: &str,
+        version_spec: &str,
+    ) -> Result<PackageMetadata, String> {
         let cache_key = format!("{}@{}", name, version_spec);
-        
+
         if let Some(cached) = self.resolved_cache.get(&cache_key) {
             return Ok(cached.clone());
         }
@@ -148,7 +152,11 @@ impl DependencyResolver {
         Ok(metadata)
     }
 
-    fn fetch_package_metadata_from_registry(&self, name: &str, version_spec: &str) -> Result<PackageMetadata, String> {
+    fn fetch_package_metadata_from_registry(
+        &self,
+        name: &str,
+        version_spec: &str,
+    ) -> Result<PackageMetadata, String> {
         let clean_version = clean_version_string(version_spec);
         let url = if clean_version == "latest" || clean_version.is_empty() {
             format!("https://registry.npmjs.org/{}", name)
@@ -156,20 +164,26 @@ impl DependencyResolver {
             format!("https://registry.npmjs.org/{}/{}", name, clean_version)
         };
 
-        let response = reqwest::blocking::get(&url)
-            .map_err(|e| format!("Registry request failed: {}", e))?;
+        let response =
+            reqwest::blocking::get(&url).map_err(|e| format!("Registry request failed: {}", e))?;
 
         if !response.status().is_success() {
             return Err(format!("Registry returned status: {}", response.status()));
         }
 
-        let json: Value = response.json()
+        let json: Value = response
+            .json()
             .map_err(|e| format!("Failed to parse registry response: {}", e))?;
 
         self.parse_registry_metadata(&json, name, &clean_version)
     }
 
-    fn parse_registry_metadata(&self, json: &Value, name: &str, requested_version: &str) -> Result<PackageMetadata, String> {
+    fn parse_registry_metadata(
+        &self,
+        json: &Value,
+        name: &str,
+        requested_version: &str,
+    ) -> Result<PackageMetadata, String> {
         let version_to_use = if requested_version == "latest" {
             json.get("dist-tags")
                 .and_then(|tags| tags.get("latest"))
@@ -189,10 +203,12 @@ impl DependencyResolver {
             json
         };
 
-        let license = version_data.get("license")
+        let license = version_data
+            .get("license")
             .and_then(|l| l.as_str())
             .or_else(|| {
-                version_data.get("licenses")
+                version_data
+                    .get("licenses")
                     .and_then(|ls| ls.as_array())
                     .and_then(|arr| arr.first())
                     .and_then(|first| first.get("type"))
@@ -210,7 +226,11 @@ impl DependencyResolver {
         })
     }
 
-    fn extract_dependencies_from_json(&self, json: &Value, dep_type: &str) -> HashMap<String, String> {
+    fn extract_dependencies_from_json(
+        &self,
+        json: &Value,
+        dep_type: &str,
+    ) -> HashMap<String, String> {
         json.get(dep_type)
             .and_then(|deps| deps.as_object())
             .map(|obj| {
@@ -245,7 +265,10 @@ pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
 }
 
 /// Analyze JavaScript dependencies
-pub fn analyze_js_licenses_with_options(package_json_path: &str, include_transient: bool) -> Vec<LicenseInfo> {
+pub fn analyze_js_licenses_with_options(
+    package_json_path: &str,
+    include_transient: bool,
+) -> Vec<LicenseInfo> {
     #[cfg(windows)]
     const NPM: &str = "npm.cmd";
     #[cfg(not(windows))]
@@ -264,7 +287,7 @@ pub fn analyze_js_licenses_with_options(package_json_path: &str, include_transie
         .unwrap_or(Path::new("."));
 
     let npm_ls_dependencies = get_full_dependency_tree(project_root, NPM);
-    
+
     let all_dependencies = match npm_ls_dependencies {
         Ok(deps) if !deps.is_empty() => {
             log(
@@ -275,14 +298,20 @@ pub fn analyze_js_licenses_with_options(package_json_path: &str, include_transie
         }
         Ok(_) | Err(_) => {
             if include_transient {
-                log(LogLevel::Info, "npm ls failed, using recursive dependency resolution");
-                
+                log(
+                    LogLevel::Info,
+                    "npm ls failed, using recursive dependency resolution",
+                );
+
                 let mut resolver = DependencyResolver::new();
                 match resolver.resolve_recursive_dependencies(package_json_path, 8) {
                     Ok(deps) => {
                         log(
                             LogLevel::Info,
-                            &format!("Found {} dependencies using recursive resolution", deps.len()),
+                            &format!(
+                                "Found {} dependencies using recursive resolution",
+                                deps.len()
+                            ),
                         );
                         deps
                     }
@@ -292,7 +321,10 @@ pub fn analyze_js_licenses_with_options(package_json_path: &str, include_transie
                     }
                 }
             } else {
-                log(LogLevel::Info, "Using direct package.json parsing (no transient deps)");
+                log(
+                    LogLevel::Info,
+                    "Using direct package.json parsing (no transient deps)",
+                );
                 parse_package_json_dependencies(package_json_path).unwrap_or_default()
             }
         }
@@ -357,7 +389,9 @@ pub fn analyze_js_licenses_with_options(package_json_path: &str, include_transie
 }
 
 /// Parse dependencies directly from package.json when npm ls fails
-fn parse_package_json_dependencies(package_json_path: &str) -> Result<HashMap<String, String>, String> {
+fn parse_package_json_dependencies(
+    package_json_path: &str,
+) -> Result<HashMap<String, String>, String> {
     log(
         LogLevel::Info,
         &format!("Parsing dependencies directly from: {}", package_json_path),
@@ -370,10 +404,13 @@ fn parse_package_json_dependencies(package_json_path: &str) -> Result<HashMap<St
         .map_err(|e| format!("Failed to parse package.json: {}", e))?;
 
     let all_deps = package_json.get_all_dependencies();
-    
+
     log(
         LogLevel::Info,
-        &format!("Found {} total dependencies in package.json", all_deps.len()),
+        &format!(
+            "Found {} total dependencies in package.json",
+            all_deps.len()
+        ),
     );
 
     log_debug("Dependencies from package.json", &all_deps);
@@ -435,7 +472,10 @@ fn get_license_from_npm_registry_api(package_name: &str, version: &str) -> Optio
                                         if !license_str.is_empty() && license_str != "UNLICENSED" {
                                             log(
                                                 LogLevel::Info,
-                                                &format!("Found license via registry API for {}: {}", package_name, license_str),
+                                                &format!(
+                                                    "Found license via registry API for {}: {}",
+                                                    package_name, license_str
+                                                ),
                                             );
                                             return Some(license_str.to_string());
                                         }
@@ -444,13 +484,19 @@ fn get_license_from_npm_registry_api(package_name: &str, version: &str) -> Optio
                             }
                         }
                         Err(err) => {
-                            log_error(&format!("Failed to parse registry response for {}", package_name), &err);
+                            log_error(
+                                &format!("Failed to parse registry response for {}", package_name),
+                                &err,
+                            );
                         }
                     }
                 }
             }
             Err(err) => {
-                log_error(&format!("Failed to fetch from registry for {}", package_name), &err);
+                log_error(
+                    &format!("Failed to fetch from registry for {}", package_name),
+                    &err,
+                );
             }
         }
     }
@@ -478,7 +524,10 @@ fn get_full_dependency_tree(
     if !node_modules_path.exists() {
         log(
             LogLevel::Warn,
-            &format!("node_modules directory not found at: {}", node_modules_path.display()),
+            &format!(
+                "node_modules directory not found at: {}",
+                node_modules_path.display()
+            ),
         );
         return Err("node_modules directory does not exist".to_string());
     }
@@ -909,7 +958,7 @@ mod tests {
         std::fs::write(&package_json_path, test_package_json).unwrap();
 
         let result = parse_package_json_dependencies(package_json_path.to_str().unwrap()).unwrap();
-        
+
         assert_eq!(result.len(), 4);
         assert!(result.contains_key("@remix-run/express"));
         assert!(result.contains_key("react"));
@@ -971,14 +1020,10 @@ mod tests {
         )
         .unwrap();
 
-        let result_with_transient = analyze_js_licenses_with_options(
-            package_json_path.to_str().unwrap(), 
-            true
-        );
-        let result_without_transient = analyze_js_licenses_with_options(
-            package_json_path.to_str().unwrap(), 
-            false
-        );
+        let result_with_transient =
+            analyze_js_licenses_with_options(package_json_path.to_str().unwrap(), true);
+        let result_without_transient =
+            analyze_js_licenses_with_options(package_json_path.to_str().unwrap(), false);
 
         assert!(result_with_transient.is_empty());
         assert!(result_without_transient.is_empty());
