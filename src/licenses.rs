@@ -5,9 +5,12 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::time::Duration;
 use toml::Value as TomlValue;
 
-use crate::debug::{log, log_debug, FeludaResult, LogLevel};
+use crate::cli;
+use crate::config;
+use crate::debug::{log, log_debug, log_error, FeludaResult, LogLevel};
 
 // Re-export language-specific functions for backward compatibility
 // TODO: Remove when 1.8.5 is no longer supported
@@ -69,6 +72,302 @@ impl LicenseInfo {
     pub fn compatibility(&self) -> &LicenseCompatibility {
         &self.compatibility
     }
+}
+
+/// License Info structure for GitHub API data
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct License {
+    pub title: String,            // The full name of the license
+    pub spdx_id: String,          // The SPDX identifier for the license
+    pub permissions: Vec<String>, // A list of permissions granted by the license
+    pub conditions: Vec<String>,  // A list of conditions that must be met under the license
+    pub limitations: Vec<String>, // A list of limitations imposed by the license
+}
+
+/// Fetch license data from GitHub's official Licenses API
+pub fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
+    log(LogLevel::Info, "Fetching licenses from GitHub Licenses API");
+
+    let licenses_map = cli::with_spinner("Fetching licenses from GitHub API", |indicator| {
+        let mut licenses_map = HashMap::new();
+        let mut license_count = 0;
+
+        // First, get the list of available licenses
+        let client = match reqwest::blocking::Client::builder()
+            .user_agent("feluda-license-checker/1.0")
+            .timeout(Duration::from_secs(30))
+            .build()
+        {
+            Ok(client) => client,
+            Err(err) => {
+                log_error("Failed to create HTTP client", &err);
+                return licenses_map;
+            }
+        };
+
+        indicator.update_progress("fetching license list");
+
+        let licenses_list_url = "https://api.github.com/licenses";
+        let response = match client.get(licenses_list_url).send() {
+            Ok(response) => response,
+            Err(err) => {
+                log_error("Failed to fetch licenses list from GitHub API", &err);
+                return licenses_map;
+            }
+        };
+
+        if !response.status().is_success() {
+            log(
+                LogLevel::Error,
+                &format!("GitHub API returned error status: {}", response.status()),
+            );
+            return licenses_map;
+        }
+
+        let licenses_list: Vec<serde_json::Value> = match response.json() {
+            Ok(list) => list,
+            Err(err) => {
+                log_error("Failed to parse licenses list JSON", &err);
+                return licenses_map;
+            }
+        };
+
+        let total_licenses = licenses_list.len();
+        indicator.update_progress(&format!("found {} licenses", total_licenses));
+
+        for (idx, license_info) in licenses_list.iter().enumerate() {
+            if let Some(license_key) = license_info.get("key").and_then(|k| k.as_str()) {
+                indicator.update_progress(&format!(
+                    "processing {}/{}: {}",
+                    idx + 1,
+                    total_licenses,
+                    license_key
+                ));
+
+                log(
+                    LogLevel::Info,
+                    &format!("Fetching detailed license info: {}", license_key),
+                );
+
+                // Fetch detailed license information
+                let license_url = format!("https://api.github.com/licenses/{}", license_key);
+
+                // Add a small delay to avoid rate limiting
+                std::thread::sleep(Duration::from_millis(100));
+
+                match client.get(&license_url).send() {
+                    Ok(license_response) => {
+                        if license_response.status().is_success() {
+                            match license_response.json::<serde_json::Value>() {
+                                Ok(license_data) => {
+                                    // Extract the license information we need
+                                    let title = license_data
+                                        .get("name")
+                                        .and_then(|n| n.as_str())
+                                        .unwrap_or(license_key)
+                                        .to_string();
+
+                                    let spdx_id = license_data
+                                        .get("spdx_id")
+                                        .and_then(|s| s.as_str())
+                                        .unwrap_or(license_key)
+                                        .to_string();
+
+                                    let permissions = license_data
+                                        .get("permissions")
+                                        .and_then(|p| p.as_array())
+                                        .map(|arr| {
+                                            arr.iter()
+                                                .filter_map(|v| v.as_str())
+                                                .map(String::from)
+                                                .collect()
+                                        })
+                                        .unwrap_or_default();
+
+                                    let conditions = license_data
+                                        .get("conditions")
+                                        .and_then(|c| c.as_array())
+                                        .map(|arr| {
+                                            arr.iter()
+                                                .filter_map(|v| v.as_str())
+                                                .map(String::from)
+                                                .collect()
+                                        })
+                                        .unwrap_or_default();
+
+                                    let limitations = license_data
+                                        .get("limitations")
+                                        .and_then(|l| l.as_array())
+                                        .map(|arr| {
+                                            arr.iter()
+                                                .filter_map(|v| v.as_str())
+                                                .map(String::from)
+                                                .collect()
+                                        })
+                                        .unwrap_or_default();
+
+                                    let license = License {
+                                        title,
+                                        spdx_id,
+                                        permissions,
+                                        conditions,
+                                        limitations,
+                                    };
+
+                                    // Use the SPDX ID as the key for consistency
+                                    let key_to_use = license_data
+                                        .get("spdx_id")
+                                        .and_then(|s| s.as_str())
+                                        .unwrap_or(license_key);
+
+                                    licenses_map.insert(key_to_use.to_string(), license);
+                                    license_count += 1;
+
+                                    log(
+                                        LogLevel::Info,
+                                        &format!("Successfully processed license: {}", key_to_use),
+                                    );
+                                }
+                                Err(err) => {
+                                    log_error(
+                                        &format!(
+                                            "Failed to parse license JSON for {}",
+                                            license_key
+                                        ),
+                                        &err,
+                                    );
+                                }
+                            }
+                        } else {
+                            log(
+                                LogLevel::Error,
+                                &format!(
+                                    "Failed to fetch license {}: HTTP {}",
+                                    license_key,
+                                    license_response.status()
+                                ),
+                            );
+                        }
+                    }
+                    Err(err) => {
+                        log_error(
+                            &format!("Failed to fetch license details for {}", license_key),
+                            &err,
+                        );
+                    }
+                }
+            }
+        }
+
+        indicator.update_progress(&format!("processed {} licenses", license_count));
+
+        log(
+            LogLevel::Info,
+            &format!(
+                "Successfully fetched {} licenses from GitHub API",
+                license_count
+            ),
+        );
+        licenses_map
+    });
+
+    Ok(licenses_map)
+}
+
+/// Check if a license is considered restrictive based on configuration and known licenses
+pub fn is_license_restrictive(
+    license: &Option<String>,
+    known_licenses: &HashMap<String, License>,
+) -> bool {
+    log(
+        LogLevel::Info,
+        &format!("Checking if license is restrictive: {:?}", license),
+    );
+
+    let config = match config::load_config() {
+        Ok(cfg) => {
+            log(LogLevel::Info, "Successfully loaded configuration");
+            cfg
+        }
+        Err(e) => {
+            log_error("Error loading configuration", &e);
+            log(LogLevel::Warn, "Using default configuration");
+            config::FeludaConfig::default()
+        }
+    };
+
+    if license.as_deref() == Some("No License") {
+        log(
+            LogLevel::Warn,
+            "No license specified, considering as restrictive",
+        );
+        return true;
+    }
+
+    if let Some(license_str) = license {
+        log_debug(
+            "Checking against known licenses",
+            &known_licenses.keys().collect::<Vec<_>>(),
+        );
+
+        if let Some(license_data) = known_licenses.get(license_str) {
+            log_debug("Found license data", license_data);
+
+            const CONDITIONS: [&str; 2] = ["source-disclosure", "network-use-disclosure"];
+            let is_restrictive = CONDITIONS
+                .iter()
+                .any(|&condition| license_data.conditions.contains(&condition.to_string()));
+
+            if is_restrictive {
+                log(
+                    LogLevel::Warn,
+                    &format!("License {} is restrictive due to conditions", license_str),
+                );
+            } else {
+                log(
+                    LogLevel::Info,
+                    &format!("License {} is not restrictive", license_str),
+                );
+            }
+
+            return is_restrictive;
+        } else {
+            // Check against user-configured restrictive licenses
+            log_debug(
+                "Checking against configured restrictive licenses",
+                &config.licenses.restrictive,
+            );
+
+            let is_restrictive = config
+                .licenses
+                .restrictive
+                .iter()
+                .any(|restrictive_license| license_str.contains(restrictive_license));
+
+            if is_restrictive {
+                log(
+                    LogLevel::Warn,
+                    &format!(
+                        "License {} matches restrictive pattern in config",
+                        license_str
+                    ),
+                );
+            } else {
+                log(
+                    LogLevel::Info,
+                    &format!(
+                        "License {} does not match any restrictive pattern",
+                        license_str
+                    ),
+                );
+            }
+
+            return is_restrictive;
+        }
+    }
+
+    log(LogLevel::Warn, "No license information available");
+    false
 }
 
 /// Check if a license is compatible with the base project license
