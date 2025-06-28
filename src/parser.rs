@@ -144,10 +144,7 @@ pub fn parse_root(
                 "❌ Project Language is not supported yet.\n\
                 🚀 Want to add support for your project language? Please raise an issue at: https://github.com/anistark/feluda/issues"
             );
-            log(
-                LogLevel::Error,
-                &format!("Unsupported language!"),
-            );
+            log(LogLevel::Error, "Unsupported language!");
             return Ok(Vec::new());
         }
 
