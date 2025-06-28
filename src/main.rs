@@ -200,6 +200,11 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
 
     log_debug("Analyzed dependencies", &analyzed_data);
 
+    if analyzed_data.is_empty() {
+        log(LogLevel::Warn, "No dependencies found to analyze. Exiting.");
+        return Ok(());
+    }
+
     // Update each dependency with compatibility information if project license is known
     if let Some(ref proj_license) = project_license {
         log(
