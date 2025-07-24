@@ -119,8 +119,8 @@ pub fn parse_root(
             "No project files found in the specified path",
         );
         println!(
-            "❌ Language is not detected.\n\
-            Could be cause feluda parser failed or the language is unsupported. Please raise an issue at: https://github.com/anistark/feluda/issues"
+            "❌ No supported project files found.\n\
+            Feluda supports: Cargo.toml (Rust), package.json (Node.js), go.mod (Go), requirements.txt/pyproject.toml (Python)"
         );
         return Ok(Vec::new());
     }
@@ -139,13 +139,6 @@ pub fn parse_root(
                 );
                 continue;
             }
-        } else {
-            println!(
-                "❌ Project Language is not supported yet.\n\
-                🚀 Want to add support for your project language? Please raise an issue at: https://github.com/anistark/feluda/issues"
-            );
-            log(LogLevel::Error, "Unsupported language!");
-            return Ok(Vec::new());
         }
 
         match parse_dependencies(&root) {
