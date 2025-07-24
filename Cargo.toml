@@ -1,6 +1,6 @@
 [package]
 name = "feluda"
-version = "1.9.4"
+version = "1.9.5"
 edition = "2021"
 description = "A CLI tool to check dependency licenses."
 readme = "README.md"
