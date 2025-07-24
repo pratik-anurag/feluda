@@ -11,6 +11,9 @@ use crate::licenses::{
     fetch_licenses_from_github, is_license_restrictive, LicenseCompatibility, LicenseInfo,
 };
 
+/// Type alias for dependency detection
+type DependencyDetector = fn(&Path) -> Result<HashMap<String, String>, String>;
+
 /// Structure representing a package.json file
 #[derive(Deserialize, Serialize, Debug)]
 pub struct PackageJson {
@@ -444,7 +447,7 @@ fn try_all_dependency_detection_methods(
 }
 
 /// Get all pnpm detection methods
-fn get_pnpm_methods() -> Vec<fn(&Path) -> Result<HashMap<String, String>, String>> {
+fn get_pnpm_methods() -> Vec<DependencyDetector> {
     vec![
         pnpm_list_all_recursive,
         pnpm_list_json_depth_infinity,
@@ -454,7 +457,7 @@ fn get_pnpm_methods() -> Vec<fn(&Path) -> Result<HashMap<String, String>, String
 }
 
 /// Get all yarn detection methods
-fn get_yarn_methods() -> Vec<fn(&Path) -> Result<HashMap<String, String>, String>> {
+fn get_yarn_methods() -> Vec<DependencyDetector> {
     vec![
         yarn_list_recursive,
         yarn_list_all_pattern,
@@ -463,7 +466,7 @@ fn get_yarn_methods() -> Vec<fn(&Path) -> Result<HashMap<String, String>, String
 }
 
 /// Get all npm detection methods
-fn get_npm_methods() -> Vec<fn(&Path) -> Result<HashMap<String, String>, String>> {
+fn get_npm_methods() -> Vec<DependencyDetector> {
     vec![npm_ls_all_json, npm_ls_long_format, npm_list_global_style]
 }
 
@@ -478,7 +481,7 @@ fn pnpm_list_all_recursive(project_root: &Path) -> Result<HashMap<String, String
     );
 
     let output = Command::new("pnpm")
-        .args(&[
+        .args([
             "list",
             "--recursive",
             "--depth",
@@ -498,7 +501,7 @@ fn pnpm_list_json_depth_infinity(project_root: &Path) -> Result<HashMap<String, 
     log(LogLevel::Info, "Trying: pnpm list --json --depth Infinity");
 
     let output = Command::new("pnpm")
-        .args(&["list", "--json", "--depth", "Infinity"])
+        .args(["list", "--json", "--depth", "Infinity"])
         .current_dir(project_root)
         .output()
         .map_err(|e| format!("pnpm list depth infinity failed: {}", e))?;
@@ -510,7 +513,7 @@ fn pnpm_list_prod_dev(project_root: &Path) -> Result<HashMap<String, String>, St
     log(LogLevel::Info, "Trying: pnpm list --prod --dev --long");
 
     let output = Command::new("pnpm")
-        .args(&["list", "--prod", "--dev", "--long", "--depth", "999"])
+        .args(["list", "--prod", "--dev", "--long", "--depth", "999"])
         .current_dir(project_root)
         .output()
         .map_err(|e| format!("pnpm list prod dev failed: {}", e))?;
@@ -546,7 +549,7 @@ fn get_pnpm_transitive_deps(
     package_name: &str,
 ) -> Result<HashMap<String, String>, String> {
     let output = Command::new("pnpm")
-        .args(&["why", package_name, "--json"])
+        .args(["why", package_name, "--json"])
         .current_dir(project_root)
         .output()
         .map_err(|e| format!("pnpm why failed: {}", e))?;
@@ -573,7 +576,7 @@ fn yarn_list_recursive(project_root: &Path) -> Result<HashMap<String, String>, S
     log(LogLevel::Info, "Trying: yarn list --recursive");
 
     let output = Command::new("yarn")
-        .args(&["list", "--recursive", "--json"])
+        .args(["list", "--recursive", "--json"])
         .current_dir(project_root)
         .output()
         .map_err(|e| format!("yarn list recursive failed: {}", e))?;
@@ -585,7 +588,7 @@ fn yarn_list_all_pattern(project_root: &Path) -> Result<HashMap<String, String>,
     log(LogLevel::Info, "Trying: yarn list --pattern '*'");
 
     let output = Command::new("yarn")
-        .args(&["list", "--pattern", "*", "--json"])
+        .args(["list", "--pattern", "*", "--json"])
         .current_dir(project_root)
         .output()
         .map_err(|e| format!("yarn list pattern failed: {}", e))?;
@@ -597,7 +600,7 @@ fn yarn_info_workspaces(project_root: &Path) -> Result<HashMap<String, String>, 
     log(LogLevel::Info, "Trying: yarn workspaces info");
 
     let output = Command::new("yarn")
-        .args(&["workspaces", "info", "--json"])
+        .args(["workspaces", "info", "--json"])
         .current_dir(project_root)
         .output()
         .map_err(|e| format!("yarn workspaces info failed: {}", e))?;
@@ -618,7 +621,7 @@ fn npm_ls_all_json(project_root: &Path) -> Result<HashMap<String, String>, Strin
     const NPM: &str = "npm";
 
     let output = Command::new(NPM)
-        .args(&["ls", "--all", "--json", "--production", "--dev"])
+        .args(["ls", "--all", "--json", "--production", "--dev"])
         .current_dir(project_root)
         .output()
         .map_err(|e| format!("npm ls all failed: {}", e))?;
@@ -635,7 +638,7 @@ fn npm_ls_long_format(project_root: &Path) -> Result<HashMap<String, String>, St
     const NPM: &str = "npm";
 
     let output = Command::new(NPM)
-        .args(&["ls", "--long", "--parseable", "--all"])
+        .args(["ls", "--long", "--parseable", "--all"])
         .current_dir(project_root)
         .output()
         .map_err(|e| format!("npm ls long failed: {}", e))?;
@@ -652,7 +655,7 @@ fn npm_list_global_style(project_root: &Path) -> Result<HashMap<String, String>,
     const NPM: &str = "npm";
 
     let output = Command::new(NPM)
-        .args(&["list", "--global-style", "--depth", "999"])
+        .args(["list", "--global-style", "--depth", "999"])
         .current_dir(project_root)
         .output()
         .map_err(|e| format!("npm list global-style failed: {}", e))?;
@@ -704,8 +707,7 @@ fn scan_with_symlink_resolution(
     let entries =
         fs::read_dir(dir).map_err(|e| format!("Failed to read {}: {}", dir.display(), e))?;
 
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+    for entry in entries.flatten() {
         let path = entry.path();
 
         if !path.is_dir() {
@@ -720,37 +722,28 @@ fn scan_with_symlink_resolution(
 
         if name.starts_with('@') {
             if let Ok(scoped_entries) = fs::read_dir(&path) {
-                for scoped_entry in scoped_entries {
-                    if let Ok(scoped_entry) = scoped_entry {
-                        let scoped_path = scoped_entry.path();
-                        if scoped_path.is_dir() {
-                            let scoped_name = scoped_path
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or("");
-                            let full_name = format!("{}/{}", name, scoped_name);
+                for scoped_entry in scoped_entries.flatten() {
+                    let scoped_path = scoped_entry.path();
+                    if scoped_path.is_dir() {
+                        let scoped_name = scoped_path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("");
+                        let full_name = format!("{}/{}", name, scoped_name);
 
-                            if let Some(version) = read_package_version_safe(&scoped_path) {
-                                packages.insert(full_name, version);
-                            }
+                        if let Some(version) = read_package_version_safe(&scoped_path) {
+                            packages.insert(full_name, version);
+                        }
 
-                            let nested = scoped_path.join("node_modules");
-                            if nested.exists() {
-                                scan_with_symlink_resolution(
-                                    &nested,
-                                    packages,
-                                    visited,
-                                    depth + 1,
-                                )?;
-                            }
+                        let nested = scoped_path.join("node_modules");
+                        if nested.exists() {
+                            scan_with_symlink_resolution(&nested, packages, visited, depth + 1)?;
                         }
                     }
                 }
             }
-        } else {
-            if let Some(version) = read_package_version_safe(&path) {
-                packages.insert(name.to_string(), version);
-            }
+        } else if let Some(version) = read_package_version_safe(&path) {
+            packages.insert(name.to_string(), version);
 
             let nested = path.join("node_modules");
             if nested.exists() {
@@ -768,37 +761,35 @@ fn scan_pnpm_virtual_store(
 ) -> Result<(), String> {
     let entries = fs::read_dir(pnpm_dir).map_err(|e| format!("Failed to read .pnpm: {}", e))?;
 
-    for entry in entries {
-        if let Ok(entry) = entry {
-            let path = entry.path();
-            if path.is_dir() {
-                let dir_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let dir_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-                if let Some((pkg_with_version, _hash)) = dir_name.split_once('_') {
-                    if let Some((pkg_name, version)) = pkg_with_version.rsplit_once('@') {
-                        let clean_name =
-                            if pkg_name.starts_with('@') && pkg_name.matches('@').count() == 2 {
-                                if let Some(at_pos) = pkg_name[1..].find('@') {
-                                    format!("@{}", &pkg_name[at_pos + 2..])
-                                } else {
-                                    pkg_name.to_string()
-                                }
+            if let Some((pkg_with_version, _hash)) = dir_name.split_once('_') {
+                if let Some((pkg_name, version)) = pkg_with_version.rsplit_once('@') {
+                    let clean_name =
+                        if pkg_name.starts_with('@') && pkg_name.matches('@').count() == 2 {
+                            if let Some(at_pos) = pkg_name[1..].find('@') {
+                                format!("@{}", &pkg_name[at_pos + 2..])
                             } else {
                                 pkg_name.to_string()
-                            };
+                            }
+                        } else {
+                            pkg_name.to_string()
+                        };
 
-                        packages.insert(clean_name, version.to_string());
+                    packages.insert(clean_name, version.to_string());
 
-                        let inner_node_modules = path.join("node_modules");
-                        if inner_node_modules.exists() {
-                            let mut visited = HashSet::new();
-                            let _ = scan_with_symlink_resolution(
-                                &inner_node_modules,
-                                packages,
-                                &mut visited,
-                                0,
-                            );
-                        }
+                    let inner_node_modules = path.join("node_modules");
+                    if inner_node_modules.exists() {
+                        let mut visited = HashSet::new();
+                        let _ = scan_with_symlink_resolution(
+                            &inner_node_modules,
+                            packages,
+                            &mut visited,
+                            0,
+                        );
                     }
                 }
             }
@@ -926,7 +917,7 @@ fn parse_npm_lockfile(project_root: &Path) -> Option<HashMap<String, String>> {
 
             if let Some(packages) = json.get("packages").and_then(|p| p.as_object()) {
                 for (path, info) in packages {
-                    if path != "" && !path.starts_with("node_modules/") {
+                    if !path.is_empty() && !path.starts_with("node_modules/") {
                         continue;
                     }
 
@@ -1000,8 +991,8 @@ fn scan_workspace_pattern(
 ) -> Result<HashMap<String, String>, String> {
     let mut deps = HashMap::new();
 
-    let pattern_path = if pattern.ends_with("/*") {
-        project_root.join(&pattern[..pattern.len() - 2])
+    let pattern_path = if let Some(stripped) = pattern.strip_suffix("/*") {
+        project_root.join(stripped)
     } else {
         project_root.join(pattern)
     };
@@ -1009,18 +1000,16 @@ fn scan_workspace_pattern(
     if pattern_path.exists() && pattern_path.is_dir() {
         if pattern.ends_with("/*") {
             if let Ok(entries) = fs::read_dir(&pattern_path) {
-                for entry in entries {
-                    if let Ok(entry) = entry {
-                        let workspace_path = entry.path();
-                        if workspace_path.is_dir() {
-                            let workspace_package_json = workspace_path.join("package.json");
-                            if workspace_package_json.exists() {
-                                let workspace_deps_found = try_all_dependency_detection_methods(
-                                    &workspace_path,
-                                    workspace_package_json.to_str().unwrap_or(""),
-                                );
-                                deps.extend(workspace_deps_found);
-                            }
+                for entry in entries.flatten() {
+                    let workspace_path = entry.path();
+                    if workspace_path.is_dir() {
+                        let workspace_package_json = workspace_path.join("package.json");
+                        if workspace_package_json.exists() {
+                            let workspace_deps_found = try_all_dependency_detection_methods(
+                                &workspace_path,
+                                workspace_package_json.to_str().unwrap_or(""),
+                            );
+                            deps.extend(workspace_deps_found);
                         }
                     }
                 }
@@ -1358,37 +1347,35 @@ fn get_license_from_package_json(
         },
     ];
 
-    for path_option in possible_paths {
-        if let Some(package_path) = path_option {
-            if let Ok(content) = fs::read_to_string(&package_path) {
-                if let Ok(json) = serde_json::from_str::<Value>(&content) {
-                    if let Some(license) = json.get("license").and_then(|l| l.as_str()) {
-                        if !license.is_empty() && license != "UNLICENSED" {
+    for package_path in possible_paths.into_iter().flatten() {
+        if let Ok(content) = fs::read_to_string(&package_path) {
+            if let Ok(json) = serde_json::from_str::<Value>(&content) {
+                if let Some(license) = json.get("license").and_then(|l| l.as_str()) {
+                    if !license.is_empty() && license != "UNLICENSED" {
+                        log(
+                            LogLevel::Info,
+                            &format!(
+                                "Found license in package.json for {}: {}",
+                                package_name, license
+                            ),
+                        );
+                        return Some(license.to_string());
+                    }
+                }
+
+                if let Some(licenses) = json.get("licenses").and_then(|l| l.as_array()) {
+                    if let Some(first_license) = licenses.first() {
+                        if let Some(license_type) =
+                            first_license.get("type").and_then(|t| t.as_str())
+                        {
                             log(
                                 LogLevel::Info,
                                 &format!(
-                                    "Found license in package.json for {}: {}",
-                                    package_name, license
+                                    "Found license in licenses array for {}: {}",
+                                    package_name, license_type
                                 ),
                             );
-                            return Some(license.to_string());
-                        }
-                    }
-
-                    if let Some(licenses) = json.get("licenses").and_then(|l| l.as_array()) {
-                        if let Some(first_license) = licenses.first() {
-                            if let Some(license_type) =
-                                first_license.get("type").and_then(|t| t.as_str())
-                            {
-                                log(
-                                    LogLevel::Info,
-                                    &format!(
-                                        "Found license in licenses array for {}: {}",
-                                        package_name, license_type
-                                    ),
-                                );
-                                return Some(license_type.to_string());
-                            }
+                            return Some(license_type.to_string());
                         }
                     }
                 }
@@ -1504,29 +1491,26 @@ fn get_license_from_pnpm_metadata(
         let expected_dir_name = format!("{}@{}", package_name, version);
 
         if let Ok(entries) = fs::read_dir(&pnpm_meta_path) {
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    let dir_name = entry.file_name();
-                    let dir_name_str = dir_name.to_string_lossy();
+            for entry in entries.flatten() {
+                let dir_name = entry.file_name();
+                let dir_name_str = dir_name.to_string_lossy();
 
-                    if dir_name_str.starts_with(&expected_dir_name) {
-                        let package_json_path = entry
-                            .path()
-                            .join("node_modules")
-                            .join(package_name)
-                            .join("package.json");
-                        if let Ok(content) = fs::read_to_string(&package_json_path) {
-                            if let Ok(json) = serde_json::from_str::<Value>(&content) {
-                                if let Some(license) = json.get("license").and_then(|l| l.as_str())
-                                {
-                                    if !license.is_empty() && license != "UNLICENSED" {
-                                        return Some(license.to_string());
-                                    }
+                if dir_name_str.starts_with(&expected_dir_name) {
+                    let package_json_path = entry
+                        .path()
+                        .join("node_modules")
+                        .join(package_name)
+                        .join("package.json");
+                    if let Ok(content) = fs::read_to_string(&package_json_path) {
+                        if let Ok(json) = serde_json::from_str::<Value>(&content) {
+                            if let Some(license) = json.get("license").and_then(|l| l.as_str()) {
+                                if !license.is_empty() && license != "UNLICENSED" {
+                                    return Some(license.to_string());
                                 }
                             }
                         }
-                        break;
                     }
+                    break;
                 }
             }
         }
@@ -1788,11 +1772,10 @@ fn parse_pnpm_lockfile_comprehensive(
             && !trimmed.starts_with(' ')
             && trimmed.ends_with(':')
             && in_packages_section
+            && trimmed != "packages:"
         {
-            if trimmed != "packages:" {
-                in_packages_section = false;
-                continue;
-            }
+            in_packages_section = false;
+            continue;
         }
 
         if in_packages_section && trimmed.starts_with('/') && trimmed.contains(':') {
@@ -1876,7 +1859,7 @@ fn try_pnpm_list_comprehensive(project_root: &Path) -> Result<HashMap<String, St
     );
 
     let output = Command::new("pnpm")
-        .args(&[
+        .args([
             "list",
             "--depth=Infinity",
             "--json",
@@ -1946,7 +1929,7 @@ fn try_pnpm_list_flat(project_root: &Path) -> Result<HashMap<String, String>, St
     );
 
     let output = Command::new("pnpm")
-        .args(&["list", "--depth=Infinity"])
+        .args(["list", "--depth=Infinity"])
         .current_dir(project_root)
         .output()
         .map_err(|e| format!("pnpm list flat failed: {}", e))?;
@@ -1988,7 +1971,7 @@ fn try_pnpm_list_recursive_json(project_root: &Path) -> Result<HashMap<String, S
     log(LogLevel::Info, "Attempting: pnpm list --recursive --json");
 
     let output = Command::new("pnpm")
-        .args(&["list", "--recursive", "--json"])
+        .args(["list", "--recursive", "--json"])
         .current_dir(project_root)
         .output()
         .map_err(|e| format!("pnpm list recursive json failed: {}", e))?;
@@ -2026,20 +2009,18 @@ fn analyze_pnpm_virtual_store_comprehensive(
     let entries =
         fs::read_dir(&pnpm_dir).map_err(|e| format!("Failed to read .pnpm directory: {}", e))?;
 
-    for entry in entries {
-        if let Ok(entry) = entry {
-            let path = entry.path();
-            if path.is_dir() {
-                let dir_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let dir_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-                if let Some((pkg_name, version)) = parse_pnpm_virtual_store_entry(dir_name) {
-                    packages.insert(pkg_name.clone(), version);
+            if let Some((pkg_name, version)) = parse_pnpm_virtual_store_entry(dir_name) {
+                packages.insert(pkg_name.clone(), version);
 
-                    let nested_modules = path.join("node_modules");
-                    if nested_modules.exists() {
-                        if let Ok(nested_deps) = scan_nested_node_modules(&nested_modules, 0) {
-                            packages.extend(nested_deps);
-                        }
+                let nested_modules = path.join("node_modules");
+                if nested_modules.exists() {
+                    if let Ok(nested_deps) = scan_nested_node_modules(&nested_modules, 0) {
+                        packages.extend(nested_deps);
                     }
                 }
             }
@@ -2081,23 +2062,21 @@ fn scan_pnpm_directory_recursive(
     }
 
     if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-                if path.is_dir() {
-                    if let Some((pkg_name, version)) = parse_any_pnpm_directory_name(name) {
-                        packages.insert(pkg_name, version);
-                    }
-
-                    let node_modules_path = path.join("node_modules");
-                    if node_modules_path.exists() {
-                        scan_all_packages_in_node_modules(&node_modules_path, packages)?;
-                    }
-
-                    scan_pnpm_directory_recursive(&path, packages, depth + 1)?;
+            if path.is_dir() {
+                if let Some((pkg_name, version)) = parse_any_pnpm_directory_name(name) {
+                    packages.insert(pkg_name, version);
                 }
+
+                let node_modules_path = path.join("node_modules");
+                if node_modules_path.exists() {
+                    scan_all_packages_in_node_modules(&node_modules_path, packages)?;
+                }
+
+                scan_pnpm_directory_recursive(&path, packages, depth + 1)?;
             }
         }
     }
@@ -2129,42 +2108,34 @@ fn scan_all_packages_in_node_modules(
     packages: &mut HashMap<String, String>,
 ) -> Result<(), String> {
     if let Ok(entries) = fs::read_dir(node_modules) {
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-                if path.is_dir() {
-                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-                    if name.starts_with('.') {
-                        continue;
-                    }
+                if name.starts_with('.') {
+                    continue;
+                }
 
-                    if name.starts_with('@') {
-                        if let Ok(scoped_entries) = fs::read_dir(&path) {
-                            for scoped_entry in scoped_entries {
-                                if let Ok(scoped_entry) = scoped_entry {
-                                    let scoped_path = scoped_entry.path();
-                                    if scoped_path.is_dir() {
-                                        let scoped_name = scoped_path
-                                            .file_name()
-                                            .and_then(|n| n.to_str())
-                                            .unwrap_or("");
-                                        let full_name = format!("{}/{}", name, scoped_name);
+                if name.starts_with('@') {
+                    if let Ok(scoped_entries) = fs::read_dir(&path) {
+                        for scoped_entry in scoped_entries.flatten() {
+                            let scoped_path = scoped_entry.path();
+                            if scoped_path.is_dir() {
+                                let scoped_name = scoped_path
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                    .unwrap_or("");
+                                let full_name = format!("{}/{}", name, scoped_name);
 
-                                        if let Some(version) =
-                                            read_package_version_safe(&scoped_path)
-                                        {
-                                            packages.insert(full_name, version);
-                                        }
-                                    }
+                                if let Some(version) = read_package_version_safe(&scoped_path) {
+                                    packages.insert(full_name, version);
                                 }
                             }
                         }
-                    } else {
-                        if let Some(version) = read_package_version_safe(&path) {
-                            packages.insert(name.to_string(), version);
-                        }
                     }
+                } else if let Some(version) = read_package_version_safe(&path) {
+                    packages.insert(name.to_string(), version);
                 }
             }
         }
@@ -2179,7 +2150,7 @@ fn try_pnpm_list_all_dependencies(project_root: &Path) -> Result<HashMap<String,
     );
 
     let output = Command::new("pnpm")
-        .args(&[
+        .args([
             "list",
             "--all",
             "--depth=Infinity",
@@ -2328,8 +2299,7 @@ fn scan_pnpm_symlinks_recursive(
     let entries = fs::read_dir(dir)
         .map_err(|e| format!("Failed to read directory {}: {}", dir.display(), e))?;
 
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+    for entry in entries.flatten() {
         let path = entry.path();
 
         if !path.is_dir() {
@@ -2344,37 +2314,28 @@ fn scan_pnpm_symlinks_recursive(
 
         if name.starts_with('@') {
             if let Ok(scoped_entries) = fs::read_dir(&path) {
-                for scoped_entry in scoped_entries {
-                    if let Ok(scoped_entry) = scoped_entry {
-                        let scoped_path = scoped_entry.path();
-                        if scoped_path.is_dir() {
-                            let scoped_name = scoped_path
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or("");
-                            let full_name = format!("{}/{}", name, scoped_name);
+                for scoped_entry in scoped_entries.flatten() {
+                    let scoped_path = scoped_entry.path();
+                    if scoped_path.is_dir() {
+                        let scoped_name = scoped_path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("");
+                        let full_name = format!("{}/{}", name, scoped_name);
 
-                            if let Some(version) = read_package_version_safe(&scoped_path) {
-                                packages.insert(full_name, version);
-                            }
+                        if let Some(version) = read_package_version_safe(&scoped_path) {
+                            packages.insert(full_name, version);
+                        }
 
-                            let nested = scoped_path.join("node_modules");
-                            if nested.exists() {
-                                scan_pnpm_symlinks_recursive(
-                                    &nested,
-                                    packages,
-                                    visited,
-                                    depth + 1,
-                                )?;
-                            }
+                        let nested = scoped_path.join("node_modules");
+                        if nested.exists() {
+                            scan_pnpm_symlinks_recursive(&nested, packages, visited, depth + 1)?;
                         }
                     }
                 }
             }
-        } else {
-            if let Some(version) = read_package_version_safe(&path) {
-                packages.insert(name.to_string(), version);
-            }
+        } else if let Some(version) = read_package_version_safe(&path) {
+            packages.insert(name.to_string(), version);
 
             let nested = path.join("node_modules");
             if nested.exists() {
@@ -2397,42 +2358,34 @@ fn scan_nested_node_modules(
     let mut packages = HashMap::new();
 
     if let Ok(entries) = fs::read_dir(node_modules_path) {
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-                if path.is_dir() {
-                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-                    if name.starts_with('.') {
-                        continue;
-                    }
+                if name.starts_with('.') {
+                    continue;
+                }
 
-                    if name.starts_with('@') {
-                        if let Ok(scoped_entries) = fs::read_dir(&path) {
-                            for scoped_entry in scoped_entries {
-                                if let Ok(scoped_entry) = scoped_entry {
-                                    let scoped_path = scoped_entry.path();
-                                    if scoped_path.is_dir() {
-                                        let scoped_name = scoped_path
-                                            .file_name()
-                                            .and_then(|n| n.to_str())
-                                            .unwrap_or("");
-                                        let full_name = format!("{}/{}", name, scoped_name);
+                if name.starts_with('@') {
+                    if let Ok(scoped_entries) = fs::read_dir(&path) {
+                        for scoped_entry in scoped_entries.flatten() {
+                            let scoped_path = scoped_entry.path();
+                            if scoped_path.is_dir() {
+                                let scoped_name = scoped_path
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                    .unwrap_or("");
+                                let full_name = format!("{}/{}", name, scoped_name);
 
-                                        if let Some(version) =
-                                            read_package_version_safe(&scoped_path)
-                                        {
-                                            packages.insert(full_name, version);
-                                        }
-                                    }
+                                if let Some(version) = read_package_version_safe(&scoped_path) {
+                                    packages.insert(full_name, version);
                                 }
                             }
                         }
-                    } else {
-                        if let Some(version) = read_package_version_safe(&path) {
-                            packages.insert(name.to_string(), version);
-                        }
                     }
+                } else if let Some(version) = read_package_version_safe(&path) {
+                    packages.insert(name.to_string(), version);
                 }
             }
         }
