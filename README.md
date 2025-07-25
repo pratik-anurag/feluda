@@ -309,6 +309,8 @@ For a short summary, in case you don't want all that output covering your screen
 feluda --gist
 ```
 
+<img width="610" height="257" alt="feluda-gist" src="https://github.com/user-attachments/assets/51224a92-678d-4cd6-8a18-45a4e67f97f2" />
+
 ### Verbose Mode
 
 For detailed information about each dependency:
