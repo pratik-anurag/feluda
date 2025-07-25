@@ -16,6 +16,7 @@ pub struct ReportConfig {
     ci_format: Option<CiFormat>,
     output_file: Option<String>,
     project_license: Option<String>,
+    gist: bool,
 }
 
 impl ReportConfig {
@@ -29,6 +30,7 @@ impl ReportConfig {
         ci_format: Option<CiFormat>,
         output_file: Option<String>,
         project_license: Option<String>,
+        gist: bool,
     ) -> Self {
         Self {
             json,
@@ -39,6 +41,7 @@ impl ReportConfig {
             ci_format,
             output_file,
             project_license,
+            gist,
         }
     }
 }
@@ -139,6 +142,12 @@ pub fn generate_report(data: Vec<LicenseInfo>, config: ReportConfig) -> (bool, b
         LogLevel::Info,
         &format!("Has incompatible licenses: {}", has_incompatible),
     );
+
+    if config.gist {
+        log(LogLevel::Info, "Generating gist summary");
+        print_gist_summary(&data, total_packages, config.project_license.as_deref());
+        return (has_restrictive, has_incompatible);
+    }
 
     // Filter data if in strict or/and incompatible mode to show only restrictive or/and incompatible licenses
     let filtered_data: Vec<LicenseInfo> = if config.strict || config.incompatible {
@@ -871,6 +880,86 @@ fn output_jenkins_format(
     }
 }
 
+// Add gist report function to reporter.rs
+fn print_gist_summary(
+    license_info: &[LicenseInfo],
+    total_packages: usize,
+    project_license: Option<&str>,
+) {
+    use colored::*;
+
+    let restrictive_count = license_info.iter().filter(|i| *i.is_restrictive()).count();
+    let incompatible_count = license_info
+        .iter()
+        .filter(|i| i.compatibility == LicenseCompatibility::Incompatible)
+        .count();
+
+    let project_license_display = project_license.unwrap_or("Not detected");
+
+    println!("\n{}", "🦀 FELUDA GIST".bold().cyan());
+    println!("{}", "━".repeat(50).cyan());
+
+    println!(
+        "│ {:30} │ {}",
+        "Project License".bold(),
+        project_license_display.cyan()
+    );
+    println!(
+        "│ {:30} │ {}",
+        "Total Dependencies Scanned".bold(),
+        total_packages.to_string().cyan()
+    );
+
+    println!("{}", "━".repeat(50).cyan());
+
+    let restrictive_status = if restrictive_count > 0 {
+        format!(
+            "{} {}",
+            "⚠️".yellow(),
+            restrictive_count.to_string().yellow().bold()
+        )
+    } else {
+        format!("{} {}", "✅".green(), "0".green().bold())
+    };
+
+    let incompatible_status = if project_license.is_some() {
+        if incompatible_count > 0 {
+            format!(
+                "{} {}",
+                "❌".red(),
+                incompatible_count.to_string().red().bold()
+            )
+        } else {
+            format!("{} {}", "✅".green(), "0".green().bold())
+        }
+    } else {
+        format!("{} {}", "❓".blue(), "N/A".blue())
+    };
+
+    println!(
+        "│ {:30} │ {}",
+        "Restrictive dependencies".bold(),
+        restrictive_status
+    );
+    println!(
+        "│ {:30} │ {}",
+        "Incompatible dependencies".bold(),
+        incompatible_status
+    );
+
+    println!("{}", "━".repeat(50).cyan());
+
+    let overall_status = if restrictive_count > 0 || incompatible_count > 0 {
+        format!("{} {}", "⚠️".yellow(), "NEEDS ATTENTION".yellow().bold())
+    } else {
+        format!("{} {}", "✨".green(), "ALL GOOD".green().bold())
+    };
+
+    println!("│ {:30} │ {}", "Recommendation".bold(), overall_status);
+
+    println!("{}\n", "━".repeat(50).cyan());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -936,7 +1025,7 @@ mod tests {
     #[test]
     fn test_generate_report_empty_data() {
         let data = vec![];
-        let config = ReportConfig::new(false, false, false, false, false, None, None, None);
+        let config = ReportConfig::new(false, false, false, false, false, None, None, None, false);
         let result = generate_report(data, config);
         assert_eq!(result, (false, false)); // No restrictive or incompatible licenses
     }
@@ -953,6 +1042,7 @@ mod tests {
             None,
             None,
             Some("MIT".to_string()),
+            false,
         );
         let result = generate_report(data, config);
         assert_eq!(result, (true, true)); // Has both restrictive and incompatible licenses
@@ -970,6 +1060,7 @@ mod tests {
             None,
             None,
             Some("MIT".to_string()),
+            false,
         );
         let result = generate_report(data, config);
         assert_eq!(result, (true, true)); // In strict mode, still has both restrictive and incompatible
@@ -987,6 +1078,7 @@ mod tests {
             None,
             None,
             Some("MIT".to_string()),
+            false,
         );
         let result = generate_report(data, config);
         assert_eq!(result, (true, true));
@@ -1004,6 +1096,7 @@ mod tests {
             None,
             None,
             Some("MIT".to_string()),
+            false,
         );
         let result = generate_report(data, config);
         assert_eq!(result, (true, true));
@@ -1021,6 +1114,7 @@ mod tests {
             None,
             None,
             Some("MIT".to_string()),
+            false,
         );
         let result = generate_report(data, config);
         assert_eq!(result, (true, true));
@@ -1029,7 +1123,7 @@ mod tests {
     #[test]
     fn test_generate_report_no_project_license() {
         let data = get_test_data_with_unknown_compatibility();
-        let config = ReportConfig::new(false, false, false, false, false, None, None, None);
+        let config = ReportConfig::new(false, false, false, false, false, None, None, None, false);
         let result = generate_report(data, config);
         assert_eq!(result, (true, false)); // Has restrictive but no incompatible since no project license
     }
@@ -1048,6 +1142,7 @@ mod tests {
             Some(CiFormat::Github),
             Some(output_path.to_str().unwrap().to_string()),
             Some("MIT".to_string()),
+            false,
         );
 
         let result = generate_report(data, config);
@@ -1080,6 +1175,7 @@ mod tests {
             Some(CiFormat::Jenkins),
             Some(output_path.to_str().unwrap().to_string()),
             Some("MIT".to_string()),
+            false,
         );
 
         let result = generate_report(data, config);
@@ -1113,6 +1209,7 @@ mod tests {
             Some(CiFormat::Jenkins),
             Some(output_path.to_str().unwrap().to_string()),
             None,
+            false,
         );
 
         let result = generate_report(data, config);
@@ -1219,6 +1316,7 @@ mod tests {
             None,  // ci_format
             None,  // output_file
             None,  // project_license
+            false, // gist
         );
 
         assert!(!config.json);
@@ -1258,6 +1356,7 @@ mod tests {
             None,
             None,
             Some("MIT".to_string()),
+            false,
         );
         let (has_restrictive, has_incompatible) = generate_report(data, config);
 
@@ -1293,6 +1392,7 @@ mod tests {
             None,
             None,
             Some("MIT".to_string()),
+            false,
         );
         let (has_restrictive, has_incompatible) = generate_report(data, config);
 
@@ -1328,6 +1428,7 @@ mod tests {
             None,
             None,
             Some("MIT".to_string()),
+            false,
         );
         let (has_restrictive, has_incompatible) = generate_report(data, config);
 
@@ -1345,7 +1446,7 @@ mod tests {
             compatibility: LicenseCompatibility::Compatible,
         }];
 
-        let config = ReportConfig::new(true, false, false, false, false, None, None, None);
+        let config = ReportConfig::new(true, false, false, false, false, None, None, None, false);
         let (has_restrictive, has_incompatible) = generate_report(data, config);
 
         assert!(!has_restrictive);
@@ -1362,7 +1463,7 @@ mod tests {
             compatibility: LicenseCompatibility::Compatible,
         }];
 
-        let config = ReportConfig::new(false, true, false, false, false, None, None, None);
+        let config = ReportConfig::new(false, true, false, false, false, None, None, None, false);
         let (has_restrictive, has_incompatible) = generate_report(data, config);
 
         assert!(!has_restrictive);
@@ -1388,6 +1489,7 @@ mod tests {
             None,
             None,
             Some("MIT".to_string()),
+            false,
         );
         let (has_restrictive, has_incompatible) = generate_report(data, config);
 
@@ -1414,6 +1516,7 @@ mod tests {
             Some(CiFormat::Github),
             None,
             Some("MIT".to_string()),
+            false,
         );
 
         let (has_restrictive, has_incompatible) = generate_report(data, config);
@@ -1506,6 +1609,7 @@ mod tests {
             Some(CiFormat::Github),
             Some("test.txt".to_string()),
             Some("MIT".to_string()),
+            false,
         );
 
         let debug_str = format!("{:?}", config);

@@ -301,6 +301,14 @@ Sample Output for a sample cargo.toml file containing `serde` and `tokio` depend
   compatibility: Compatible
 ```
 
+### Gist Mode
+
+For a short summary, in case you don't want all that output covering your screen:
+
+```sh
+feluda --gist
+```
+
 ### Verbose Mode
 
 For detailed information about each dependency:

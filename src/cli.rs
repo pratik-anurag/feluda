@@ -128,6 +128,10 @@ pub struct Cli {
     /// Specify the project license (overrides auto-detection)
     #[arg(long)]
     pub project_license: Option<String>,
+
+    // Show a concise gist summary
+    #[arg(long, group = "output")]
+    pub gist: bool,
 }
 
 impl Cli {
@@ -373,6 +377,7 @@ mod tests {
             incompatible: false,
             fail_on_incompatible: false,
             project_license: None,
+            gist: false,
         };
 
         assert_eq!(cli.path, "./");
@@ -408,6 +413,7 @@ mod tests {
             incompatible: false,
             fail_on_incompatible: false,
             project_license: None,
+            gist: false,
         };
 
         let cmd = cli.get_command_args();
@@ -447,6 +453,7 @@ mod tests {
             incompatible: false,
             fail_on_incompatible: false,
             project_license: None,
+            gist: false,
         };
 
         let cmd = cli.get_command_args();

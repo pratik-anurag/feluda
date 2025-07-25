@@ -39,6 +39,7 @@ struct CheckConfig {
     incompatible: bool,
     fail_on_incompatible: bool,
     project_license: Option<String>,
+    gist: bool,
 }
 
 fn main() {
@@ -128,6 +129,7 @@ fn run() -> FeludaResult<()> {
             incompatible: args.incompatible,
             fail_on_incompatible: args.fail_on_incompatible,
             project_license: args.project_license,
+            gist: args.gist,
         };
         handle_check_command(config)
     } else {
@@ -353,6 +355,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
             config.ci_format,
             config.output_file,
             project_license,
+            config.gist,
         );
 
         // Generate a report based on the analyzed data
