@@ -53,10 +53,7 @@ pub fn analyze_go_licenses(go_mod_path: &str) -> Vec<LicenseInfo> {
     let content = match fs::read_to_string(go_mod_path) {
         Ok(content) => content,
         Err(err) => {
-            log_error(
-                &format!("Failed to read go.mod file: {go_mod_path}"),
-                &err,
-            );
+            log_error(&format!("Failed to read go.mod file: {go_mod_path}"), &err);
             return Vec::new();
         }
     };
@@ -243,10 +240,7 @@ pub fn fetch_license_for_go_dependency(
                             }
                         }
                         Err(err) => {
-                            log_error(
-                                &format!("Failed to extract HTML content for {name}"),
-                                &err,
-                            );
+                            log_error(&format!("Failed to extract HTML content for {name}"), &err);
                         }
                     }
                 } else {
@@ -267,9 +261,7 @@ pub fn fetch_license_for_go_dependency(
 
     log(
         LogLevel::Warn,
-        &format!(
-            "Unable to determine license for {name} after {attempts} attempts"
-        ),
+        &format!("Unable to determine license for {name} after {attempts} attempts"),
     );
     "Unknown".into()
 }

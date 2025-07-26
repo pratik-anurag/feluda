@@ -123,9 +123,7 @@ pub fn clone_repository(args: &Cli, dest_path: &Path) -> FeludaResult<()> {
 
         log(
             LogLevel::Info,
-            &format!(
-                "Credentials callback for URL: {url}, username: {username_from_url:?}"
-            ),
+            &format!("Credentials callback for URL: {url}, username: {username_from_url:?}"),
         );
         if allowed_types.is_ssh_key() {
             log(LogLevel::Info, "Attempting SSH authentication");
@@ -222,10 +220,7 @@ pub fn clone_repository(args: &Cli, dest_path: &Path) -> FeludaResult<()> {
                     };
                 }
             }
-            log(
-                LogLevel::Error,
-                &format!("Failed to clone repository: {e}"),
-            );
+            log(LogLevel::Error, &format!("Failed to clone repository: {e}"));
             Err(FeludaError::Unknown(format!(
                 "Failed to clone repository: {e}"
             )))

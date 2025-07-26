@@ -85,10 +85,7 @@ fn run() -> FeludaResult<()> {
 
             // Clone the repository
             if let Err(e) = clone_repository(&args, repo_path) {
-                log(
-                    LogLevel::Error,
-                    &format!("Repository cloning failed: {e}"),
-                );
+                log(LogLevel::Error, &format!("Repository cloning failed: {e}"));
                 return Err(e);
             }
             log(
@@ -211,9 +208,7 @@ fn handle_check_command(config: CheckConfig) -> FeludaResult<()> {
     if let Some(ref proj_license) = project_license {
         log(
             LogLevel::Info,
-            &format!(
-                "Checking license compatibility against project license: {proj_license}"
-            ),
+            &format!("Checking license compatibility against project license: {proj_license}"),
         );
 
         for info in &mut analyzed_data {

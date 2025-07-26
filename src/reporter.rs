@@ -492,11 +492,9 @@ fn print_incompatible_licenses_table(
     println!(
         "\n{} {}\n",
         "❌".bold(),
-        format!(
-            "Warning: Licenses incompatible with {project_license} found!"
-        )
-        .red()
-        .bold()
+        format!("Warning: Licenses incompatible with {project_license} found!")
+            .red()
+            .bold()
     );
 
     let headers = vec![

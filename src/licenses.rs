@@ -230,9 +230,7 @@ pub fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
                                 }
                                 Err(err) => {
                                     log_error(
-                                        &format!(
-                                            "Failed to parse license JSON for {license_key}"
-                                        ),
+                                        &format!("Failed to parse license JSON for {license_key}"),
                                         &err,
                                     );
                                 }
@@ -262,9 +260,7 @@ pub fn fetch_licenses_from_github() -> FeludaResult<HashMap<String, License>> {
 
         log(
             LogLevel::Info,
-            &format!(
-                "Successfully fetched {license_count} licenses from GitHub API"
-            ),
+            &format!("Successfully fetched {license_count} licenses from GitHub API"),
         );
         licenses_map
     });
@@ -345,16 +341,12 @@ pub fn is_license_restrictive(
             if is_restrictive {
                 log(
                     LogLevel::Warn,
-                    &format!(
-                        "License {license_str} matches restrictive pattern in config"
-                    ),
+                    &format!("License {license_str} matches restrictive pattern in config"),
                 );
             } else {
                 log(
                     LogLevel::Info,
-                    &format!(
-                        "License {license_str} does not match any restrictive pattern"
-                    ),
+                    &format!("License {license_str} does not match any restrictive pattern"),
                 );
             }
 
@@ -455,9 +447,7 @@ pub fn is_license_compatible(
         None => {
             log(
                 LogLevel::Warn,
-                &format!(
-                    "Unknown compatibility for project license {norm_project_license}"
-                ),
+                &format!("Unknown compatibility for project license {norm_project_license}"),
             );
             LicenseCompatibility::Unknown
         }

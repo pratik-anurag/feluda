@@ -603,9 +603,7 @@ fn rate_limit_delay() {
 fn fetch_actual_license_content(name: &str, version: &str) -> Option<String> {
     log(
         LogLevel::Info,
-        &format!(
-            "Attempting to fetch actual license content for {name} v{version}"
-        ),
+        &format!("Attempting to fetch actual license content for {name} v{version}"),
     );
 
     // Fetch from crates.io for Rust packages
@@ -635,9 +633,7 @@ fn fetch_actual_license_content(name: &str, version: &str) -> Option<String> {
 
     log(
         LogLevel::Warn,
-        &format!(
-            "Could not fetch actual license content for {name} v{version}"
-        ),
+        &format!("Could not fetch actual license content for {name} v{version}"),
     );
     None
 }
@@ -646,9 +642,7 @@ fn fetch_actual_license_content(name: &str, version: &str) -> Option<String> {
 fn fetch_license_from_crates_io(name: &str, version: &str) -> Option<String> {
     log(
         LogLevel::Info,
-        &format!(
-            "Trying to fetch license from crates.io for {name} v{version}"
-        ),
+        &format!("Trying to fetch license from crates.io for {name} v{version}"),
     );
 
     let client = create_http_client()?;
@@ -735,9 +729,7 @@ fn fetch_license_from_npm(name: &str, version: &str) -> Option<String> {
 fn fetch_license_from_pypi(name: &str, version: &str) -> Option<String> {
     log(
         LogLevel::Info,
-        &format!(
-            "Trying to fetch license from PyPI for {name} v{version}"
-        ),
+        &format!("Trying to fetch license from PyPI for {name} v{version}"),
     );
 
     let client = create_http_client()?;
@@ -779,9 +771,7 @@ fn fetch_license_from_pypi(name: &str, version: &str) -> Option<String> {
 fn fetch_license_from_go_proxy(name: &str, version: &str) -> Option<String> {
     log(
         LogLevel::Info,
-        &format!(
-            "Trying to fetch license from Go proxy for {name} v{version}"
-        ),
+        &format!("Trying to fetch license from Go proxy for {name} v{version}"),
     );
 
     if name.starts_with("github.com/") {
@@ -861,9 +851,8 @@ fn fetch_license_from_github_repo(repo_url: &str) -> Option<String> {
     ];
 
     for license_file in &license_files {
-        let api_url = format!(
-            "https://api.github.com/repos/{owner}/{repo}/contents/{license_file}"
-        );
+        let api_url =
+            format!("https://api.github.com/repos/{owner}/{repo}/contents/{license_file}");
 
         log(LogLevel::Info, &format!("Trying to fetch: {api_url}"));
 
@@ -1299,9 +1288,7 @@ pub fn handle_generate_command(
     // Parse project dependencies first
     log(
         LogLevel::Info,
-        &format!(
-            "Parsing dependencies for generate command in path: {path}"
-        ),
+        &format!("Parsing dependencies for generate command in path: {path}"),
     );
 
     // Import necessary modules for dependency parsing and license detection
@@ -1360,9 +1347,7 @@ pub fn handle_generate_command(
     if let Some(ref proj_license) = resolved_project_license {
         log(
             LogLevel::Info,
-            &format!(
-                "Checking license compatibility against project license: {proj_license}"
-            ),
+            &format!("Checking license compatibility against project license: {proj_license}"),
         );
 
         for info in &mut analyzed_data {

@@ -251,9 +251,7 @@ impl DependencyResolver {
 pub fn analyze_js_licenses(package_json_path: &str) -> Vec<LicenseInfo> {
     log(
         LogLevel::Info,
-        &format!(
-            "Analyzing JavaScript dependencies from: {package_json_path}"
-        ),
+        &format!("Analyzing JavaScript dependencies from: {package_json_path}"),
     );
 
     let project_root = Path::new(package_json_path)
@@ -1353,9 +1351,7 @@ fn get_license_from_package_json(
                     if !license.is_empty() && license != "UNLICENSED" {
                         log(
                             LogLevel::Info,
-                            &format!(
-                                "Found license in package.json for {package_name}: {license}"
-                            ),
+                            &format!("Found license in package.json for {package_name}: {license}"),
                         );
                         return Some(license.to_string());
                     }
@@ -1550,8 +1546,8 @@ fn parse_package_json_dependencies(
     let content = std::fs::read_to_string(package_json_path)
         .map_err(|e| format!("Failed to read package.json: {e}"))?;
 
-    let package_json: PackageJson = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse package.json: {e}"))?;
+    let package_json: PackageJson =
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse package.json: {e}"))?;
 
     let all_deps = package_json.get_all_dependencies();
 
@@ -2161,10 +2157,7 @@ fn try_pnpm_list_all_dependencies(project_root: &Path) -> Result<HashMap<String,
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        log(
-            LogLevel::Warn,
-            &format!("pnpm list --all failed: {stderr}"),
-        );
+        log(LogLevel::Warn, &format!("pnpm list --all failed: {stderr}"));
         return Err(format!("pnpm list all failed: {stderr}"));
     }
 

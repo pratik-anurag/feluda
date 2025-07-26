@@ -337,10 +337,7 @@ fn constraint_len_calculator(items: &[LicenseInfo]) -> (u16, u16, u16, u16, u16)
         compatibility_len as u16,
     );
 
-    log(
-        LogLevel::Info,
-        &format!("Table column widths: {result:?}"),
-    );
+    log(LogLevel::Info, &format!("Table column widths: {result:?}"));
     result
 }
 

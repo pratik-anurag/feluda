@@ -180,10 +180,7 @@ pub fn analyze_python_licenses(package_file_path: &str) -> Vec<LicenseInfo> {
 
                                 dep_count += 1;
                             } else {
-                                log(
-                                    LogLevel::Warn,
-                                    &format!("Invalid requirement line: {line}"),
-                                );
+                                log(LogLevel::Warn, &format!("Invalid requirement line: {line}"));
                             }
                         }
                         Err(err) => {
@@ -245,10 +242,7 @@ pub fn fetch_license_for_python_dependency(name: &str, version: &str) -> String 
                         }
                     },
                     Err(err) => {
-                        log_error(
-                            &format!("Failed to parse JSON for {name}: {version}"),
-                            &err,
-                        );
+                        log_error(&format!("Failed to parse JSON for {name}: {version}"), &err);
                         String::from("Unknown")
                     }
                 }
