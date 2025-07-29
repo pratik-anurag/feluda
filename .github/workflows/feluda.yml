@@ -1,6 +1,9 @@
 # .github/workflows/license-check.yml
 name: License Check
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
 
@@ -10,7 +13,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-
+        with:
+          persist-credentials: true
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
