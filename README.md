@@ -66,7 +66,7 @@ cargo install feluda
 <details>
 <summary>Homebrew (maintained by <a href="https://github.com/chenrui333" rel="noopener noreferrer">@chenrui333</a>)</summary>
 
-![macOS](https://img.shields.io/badge/mac%20os-000000?style=for-the-badge&logo=macos&logoColor=F0F0F0) 
+![macOS](https://img.shields.io/badge/mac%20os-000000?style=for-the-badge&logo=macos&logoColor=F0F0F0)
 
 [feluda](https://formulae.brew.sh/formula/feluda) is available in the [Homebrew](https://formulae.brew.sh/).
 You can install it using brew:
@@ -94,7 +94,7 @@ paru -S feluda
 <details>
 <summary>NetBSD (maintained by <a href="https://github.com/0323pin" rel="noopener noreferrer">@0323pin</a>)</summary>
 
-![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black) 
+![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)
 
 On NetBSD a package is available from the [official repositories](https://pkgsrc.se/devel/feluda/). To install it, simply run:
 
@@ -102,6 +102,25 @@ On NetBSD a package is available from the [official repositories](https://pkgsrc
 pkgin install feluda
 ```
 
+</details>
+
+<details>
+<summary>DEB Package (Debian/Ubuntu)</summary>
+
+![Ubuntu](https://img.shields.io/badge/Ubuntu-E95420?style=for-the-badge&logo=ubuntu&logoColor=white) ![Debian](https://img.shields.io/badge/Debian-D70A53?style=for-the-badge&logo=debian&logoColor=white)
+
+Feluda is available as a DEB package for Debian-based systems.
+
+1. Download the latest `.deb` file from [GitHub Releases](https://github.com/anistark/feluda/releases)
+2. Install the package:
+
+```bash
+# Install the downloaded DEB package
+sudo dpkg -i feluda_*.deb
+
+# If there are dependency issues, fix them
+sudo apt install -f
+```
 </details>
 
 [![Packaging status](https://repology.org/badge/vertical-allrepos/feluda.svg)](https://repology.org/project/feluda/versions)
@@ -202,7 +221,7 @@ A **NOTICE file** is a concise summary document that provides attribution for th
 
 - **Purpose**: Quick overview of all third-party components and their licenses
 - **Content**: Organized by license type, lists all dependencies with their versions
-- **Use Cases**: 
+- **Use Cases**:
   - Legal compliance documentation
   - Quick reference for license audits
   - Attribution requirements for many open source licenses
