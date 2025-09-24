@@ -1,5 +1,7 @@
 //! Language-specific parsing and license analysis modules
 
+pub mod c;
+pub mod cpp;
 pub mod go;
 pub mod node;
 pub mod python;
@@ -7,6 +9,8 @@ pub mod rust;
 
 // Re-export commonly used types and functions for backward compatibility
 // TODO: Remove when 1.8.5 is no longer supported
+pub use c::analyze_c_licenses;
+pub use cpp::analyze_cpp_licenses;
 pub use go::{
     analyze_go_licenses, fetch_license_for_go_dependency, get_go_dependencies, GoPackages,
 };
@@ -36,6 +40,8 @@ pub trait LanguageParser {
 /// Language identification
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Language {
+    C(&'static [&'static str]),
+    Cpp(&'static [&'static str]),
     Rust(&'static str),
     Node(&'static str),
     Go(&'static str),
@@ -48,6 +54,14 @@ impl Language {
             "Cargo.toml" => Some(Language::Rust("Cargo.toml")),
             "package.json" => Some(Language::Node("package.json")),
             "go.mod" => Some(Language::Go("go.mod")),
+            "vcpkg.json" => Some(Language::Cpp(&CPP_PATHS[..])),
+            "conanfile.txt" | "conanfile.py" => Some(Language::Cpp(&CPP_PATHS[..])),
+            "MODULE.bazel" => Some(Language::Cpp(&CPP_PATHS[..])),
+            "configure.ac" | "configure.in" | "Makefile" => Some(Language::C(&C_PATHS[..])),
+            "CMakeLists.txt" => {
+                // CMake can be used for both C and C++, default to C++
+                Some(Language::Cpp(&CPP_PATHS[..]))
+            }
             _ => {
                 if PYTHON_PATHS.contains(&file_name) {
                     Some(Language::Python(&PYTHON_PATHS[..]))
@@ -58,6 +72,18 @@ impl Language {
         }
     }
 }
+
+/// C project file patterns
+pub const C_PATHS: [&str; 3] = ["configure.ac", "configure.in", "Makefile"];
+
+/// C++ project file patterns
+pub const CPP_PATHS: [&str; 5] = [
+    "vcpkg.json",
+    "conanfile.txt",
+    "conanfile.py",
+    "CMakeLists.txt",
+    "MODULE.bazel",
+];
 
 /// Python project file patterns
 pub const PYTHON_PATHS: [&str; 4] = [
