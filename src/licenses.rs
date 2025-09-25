@@ -652,7 +652,8 @@ pub fn is_license_restrictive(
 }
 
 /// This is the default configuration
-const EMBEDDED_LICENSE_COMPATIBILITY_TOML: &str = include_str!("../config/license_compatibility.toml");
+const EMBEDDED_LICENSE_COMPATIBILITY_TOML: &str =
+    include_str!("../config/license_compatibility.toml");
 
 /// Load license compatibility matrix from external TOML file if available
 /// Looks for the file in the following order:
@@ -665,9 +666,7 @@ fn load_compatibility_matrix() -> FeludaResult<HashMap<String, Vec<String>>> {
     );
 
     // Only check for user-specific config in .feluda directory
-    let config_paths = vec![
-        Path::new(".feluda/license_compatibility.toml").to_path_buf(),
-    ];
+    let config_paths = vec![Path::new(".feluda/license_compatibility.toml").to_path_buf()];
 
     let mut config_content = None;
     let mut used_path = None;
@@ -714,7 +713,7 @@ fn load_compatibility_matrix() -> FeludaResult<HashMap<String, Vec<String>>> {
         };
         log(
             LogLevel::Error,
-            &format!("Failed to parse license compatibility {}: {}", source, e),
+            &format!("Failed to parse license compatibility {source}: {e}"),
         );
         std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
     })?;
