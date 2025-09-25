@@ -475,7 +475,7 @@ We've an awesome ✨ TUI mode available to browse through the dependencies in a 
 feluda --gui
 ```
 
-![ss-gui](https://github.com/user-attachments/assets/44d46755-b186-4326-a3fb-548da31f3acd)
+![ss-gui](https://github.com/user-attachments/assets/f946fb1e-a36b-428b-b79f-90da0beface2)
 
 ## CI/CD Integration
 
@@ -491,7 +491,7 @@ Feluda can be easily integrated into your CI/CD pipelines with built-in support 
 
 ### GitHub Actions
 
-To use Feluda with GitHub Actions, simply use the published action:
+To use Feluda with GitHub Actions, simply use the published action. For detailed documentation, see the [GitHub Action README](./ACTION-README.md).
 
 ```yaml
 name: License Check
