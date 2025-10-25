@@ -833,10 +833,10 @@ fn parse_version_constraint(constraint: &str) -> Option<(&str, &str)> {
         Some(("!=", version.trim()))
     } else if let Some(version) = constraint.strip_prefix(">") {
         Some((">", version.trim()))
-    } else if let Some(version) = constraint.strip_prefix("<") {
-        Some(("<", version.trim()))
     } else {
-        None
+        constraint
+            .strip_prefix("<")
+            .map(|version| ("<", version.trim()))
     }
 }
 
