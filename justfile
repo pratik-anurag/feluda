@@ -57,9 +57,10 @@ debian-release:
     dput ppa:your-ppa-name ../{{CRATE_NAME}}_{{VERSION}}_source.changes
 
 # Publish the crate to crates.io
-publish: build test-release package
+publish RELEASE_TYPE="": build test-release package
     cargo publish
-    just gh-release
+    @if [ -z "{{RELEASE_TYPE}}" ]; then git tag v{{VERSION}}; else git tag v{{VERSION}}-{{RELEASE_TYPE}}; fi
+    @if [ -z "{{RELEASE_TYPE}}" ]; then git push origin v{{VERSION}}; else git push origin v{{VERSION}}-{{RELEASE_TYPE}}; fi
 
 # Clean up the build artifacts
 clean:
