@@ -608,7 +608,7 @@ Checkout [contributing guidelines](./CONTRIBUTING.md) if you are looking to cont
 
 ## Configuration (Optional)
 
-Feluda allows you to customize which licenses are considered restrictive through configuration. This can be done in three ways, listed in order of precedence (highest to lowest):
+Feluda allows you to customize which licenses are considered restrictive and which licenses to ignore from analysis. This can be done in three ways, listed in order of precedence (highest to lowest):
 
 1. Environment variables
 2. `.feluda.toml` configuration file
@@ -627,7 +627,7 @@ By default, Feluda considers the following licenses as restrictive:
 
 ### Configuration File
 
-Create a `.feluda.toml` file in your project root to override the default restrictive licenses:
+Create a `.feluda.toml` file in your project root to customize restrictive licenses and ignore licenses:
 
 ```toml
 [licenses]
@@ -637,7 +637,64 @@ restrictive = [
     "AGPL-3.0",     # GNU Affero General Public License v3.0
     "Custom-1.0",   # Your custom license identifier
 ]
+
+# Licenses to ignore from analysis
+ignore = [
+    "MIT",          # MIT License
+    "Apache-2.0",   # Apache License 2.0
+]
 ```
+
+### Ignoring Licenses
+
+The `ignore` section allows you to exclude specific licenses from analysis. This is useful when:
+- You want to exclude certain permissive licenses from the output
+- You're only interested in restrictive or incompatible licenses
+- You want to focus on specific subsets of your dependencies
+
+Ignored licenses will be completely filtered out from the analysis results and won't appear in any reports.
+
+```toml
+[licenses]
+ignore = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+]
+```
+
+### Ignoring Dependencies
+
+The `[dependencies]` section allows you to exclude entire dependencies from license scanning, regardless of their license. This is useful when:
+- A dependency is internal to your organization and shares your project's license
+- You have a written agreement with the dependency author allowing its use
+- A dependency is only used in development/testing and not distributed
+
+Ignored dependencies will be completely filtered out during the scanning phase and won't appear in any reports.
+
+```toml
+[[dependencies.ignore]]
+name = "github.com/anistark/wasmrun"
+version = "v1.0.0"
+reason = "This is within the same repo as the project, hence it shares the same license."
+
+[[dependencies.ignore]]
+name = "internal-library"
+version = ""  # Leave empty to ignore all versions of this dependency
+reason = "We have a written acknowledgment from the author that we may use their code under our license."
+
+[[dependencies.ignore]]
+name = "dev-only-package"
+version = ""  # Ignore all versions
+reason = "This package is only used for development and testing, not distributed."
+```
+
+**Note**: The `version` field is optional:
+- When specified (e.g., `"v1.0.0"`), only that version will be ignored
+- When left empty or omitted, **all versions** of that dependency will be ignored
+- The `reason` field documents why the dependency is being ignored for auditing purposes
 
 ### Environment Variables
 
@@ -646,9 +703,27 @@ You can also override the configuration using environment variables:
 ```sh
 # Override restrictive licenses list
 export FELUDA_LICENSES_RESTRICTIVE='["GPL-3.0","AGPL-3.0","Custom-1.0"]'
+
+# Override ignore licenses list
+export FELUDA_LICENSES_IGNORE='["MIT","Apache-2.0","BSD-3-Clause"]'
 ```
 
 The environment variables take precedence over both the configuration file and default values.
+
+### Configuration Validation
+
+Feluda validates your configuration and will warn you if:
+
+**License Configuration:**
+- A license appears in both `restrictive` and `ignore` lists (the license will be ignored)
+- Empty license strings are found in either list (will cause an error)
+- Duplicate licenses are found in either list (will cause an error)
+- Invalid SPDX identifiers are used (warning only)
+
+**Dependency Configuration:**
+- Empty dependency names are provided (will cause an error)
+- Duplicate dependencies with the same name and version are found (will cause an error)
+- A dependency is missing a reason (warning only)
 
 ## License Compatibility Matrix
 

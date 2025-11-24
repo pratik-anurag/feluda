@@ -17,6 +17,22 @@
 //!     "AGPL-3.0",     # GNU Affero General Public License v3.0
 //!     "LGPL-3.0",     # GNU Lesser General Public License v3.0
 //! ]
+//!
+//! # Licenses to ignore from analysis
+//! ignore = [
+//!     "MIT",          # MIT License
+//!     "Apache-2.0",   # Apache License 2.0
+//! ]
+//!
+//! [[dependencies.ignore]]
+//! name = "github.com/opcotech/elemo-pre-mailer"
+//! version = "v1.0.0"
+//! reason = "This is within the same repo as the project, hence it shares the same license."
+//!
+//! [[dependencies.ignore]]
+//! name = "something-else"
+//! version = ""  # Empty version means ignore all versions of this dependency
+//! reason = "We have a written acknowledgment from the author that we may use their code under our license."
 //! ```
 //!
 //! # Environment Variables
@@ -26,6 +42,8 @@
 //! ```sh
 //! # Override restrictive licenses list
 //! export FELUDA_LICENSES_RESTRICTIVE='["GPL-3.0","AGPL-3.0"]'
+//! # Override ignore licenses list
+//! export FELUDA_LICENSES_IGNORE='["MIT","Apache-2.0"]'
 //! ```
 
 use figment::{
@@ -73,12 +91,15 @@ impl FeludaConfig {
 pub struct LicenseConfig {
     #[serde(default = "default_restrictive_licenses")]
     pub restrictive: Vec<String>,
+    #[serde(default)]
+    pub ignore: Vec<String>,
 }
 
 impl Default for LicenseConfig {
     fn default() -> Self {
         Self {
             restrictive: default_restrictive_licenses(),
+            ignore: Vec::new(),
         }
     }
 }
@@ -94,7 +115,7 @@ impl LicenseConfig {
             );
         }
 
-        // Check for duplicate licenses
+        // Check for duplicate licenses in restrictive list
         let mut seen = std::collections::HashSet::new();
         let mut duplicates = Vec::new();
 
@@ -117,7 +138,7 @@ impl LicenseConfig {
             )));
         }
 
-        // Validate license format (basic SPDX-like validation)
+        // Validate license format for restrictive licenses (basic SPDX-like validation)
         for license in &self.restrictive {
             if !Self::is_valid_license_identifier(license) {
                 log(
@@ -127,7 +148,61 @@ impl LicenseConfig {
             }
         }
 
+        // Validate ignore licenses list
+        let mut ignore_seen = std::collections::HashSet::new();
+        let mut ignore_duplicates = Vec::new();
+
+        for license in &self.ignore {
+            if license.trim().is_empty() {
+                return Err(FeludaError::Config(
+                    "Empty license string found in ignore licenses list".to_string(),
+                ));
+            }
+
+            if !ignore_seen.insert(license) {
+                ignore_duplicates.push(license.clone());
+            }
+        }
+
+        if !ignore_duplicates.is_empty() {
+            return Err(FeludaError::Config(format!(
+                "Duplicate licenses found in ignore list: {}",
+                ignore_duplicates.join(", ")
+            )));
+        }
+
+        // Validate license format for ignore licenses
+        for license in &self.ignore {
+            if !Self::is_valid_license_identifier(license) {
+                log(
+                    LogLevel::Warn,
+                    &format!(
+                        "License '{license}' in ignore list may not be a valid SPDX identifier"
+                    ),
+                );
+            }
+        }
+
+        // Check for overlap between restrictive and ignore lists
+        let restrictive_set: std::collections::HashSet<_> = self.restrictive.iter().collect();
+        let ignore_set: std::collections::HashSet<_> = self.ignore.iter().collect();
+        let overlap: Vec<_> = restrictive_set
+            .intersection(&ignore_set)
+            .map(|s| s.to_string())
+            .collect();
+
+        if !overlap.is_empty() {
+            log(
+                LogLevel::Warn,
+                &format!(
+                    "Licenses found in both restrictive and ignore lists will be ignored: {}",
+                    overlap.join(", ")
+                ),
+            );
+        }
+
         log_debug("License configuration validation passed", &self.restrictive);
+        log_debug("Ignore licenses configuration", &self.ignore);
         Ok(())
     }
 
@@ -160,12 +235,29 @@ pub struct DependencyConfig {
     /// Default is 10 levels deep
     #[serde(default = "default_max_depth")]
     pub max_depth: u32,
+    /// Dependencies to exclude from license scanning
+    #[serde(default)]
+    pub ignore: Vec<IgnoreDependency>,
+}
+
+/// Configuration for a dependency to ignore
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct IgnoreDependency {
+    /// The name/identifier of the dependency (e.g., "github.com/opcotech/elemo-pre-mailer")
+    pub name: String,
+    /// The version of the dependency. Leave empty to ignore all versions.
+    #[serde(default)]
+    pub version: String,
+    /// Reason for ignoring this dependency
+    #[serde(default)]
+    pub reason: String,
 }
 
 impl Default for DependencyConfig {
     fn default() -> Self {
         Self {
             max_depth: default_max_depth(),
+            ignore: Vec::new(),
         }
     }
 }
@@ -196,11 +288,72 @@ impl DependencyConfig {
             );
         }
 
+        // Validate ignore dependencies
+        for dep in self.ignore.iter() {
+            if dep.name.trim().is_empty() {
+                return Err(FeludaError::Config(
+                    "Empty dependency name found in ignore list".to_string(),
+                ));
+            }
+
+            // Warn if reason is empty
+            if dep.reason.trim().is_empty() {
+                log(
+                    LogLevel::Warn,
+                    &format!(
+                        "Dependency '{}' in ignore list has no reason specified",
+                        dep.name
+                    ),
+                );
+            }
+        }
+
+        // Check for duplicate dependencies in ignore list
+        let mut seen = std::collections::HashSet::new();
+        let mut duplicates = Vec::new();
+
+        for dep in &self.ignore {
+            let key = (dep.name.clone(), dep.version.clone());
+            if !seen.insert(key.clone()) {
+                duplicates.push(format!("{}@{}", dep.name, dep.version));
+            }
+        }
+
+        if !duplicates.is_empty() {
+            return Err(FeludaError::Config(format!(
+                "Duplicate dependencies found in ignore list: {}",
+                duplicates.join(", ")
+            )));
+        }
+
+        if !self.ignore.is_empty() {
+            log_debug("Dependency ignore list", &self.ignore.len());
+        }
+
         log_debug(
             "Dependency configuration validation passed",
             &self.max_depth,
         );
         Ok(())
+    }
+
+    /// Check if a dependency should be ignored based on configuration
+    /// Returns true if the dependency matches an ignore rule (name and optionally version)
+    pub fn should_ignore_dependency(&self, name: &str, version: Option<&str>) -> bool {
+        self.ignore.iter().any(|ignored| {
+            // Match by name (case-sensitive)
+            if ignored.name != name {
+                return false;
+            }
+
+            // If version is specified in ignore rule, match exactly
+            if !ignored.version.is_empty() {
+                return version.is_some_and(|v| v == ignored.version);
+            }
+
+            // If version is empty in ignore rule, ignore all versions
+            true
+        })
     }
 }
 
@@ -562,8 +715,12 @@ restrictive = ["TOML-LICENSE-1", "TOML-LICENSE-2"]"#,
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["TEST-1.0".to_string(), "TEST-2.0".to_string()],
+                ignore: Vec::new(),
             },
-            dependencies: DependencyConfig { max_depth: 5 },
+            dependencies: DependencyConfig {
+                max_depth: 5,
+                ignore: Vec::new(),
+            },
         };
 
         // Test that config can be serialized and deserialized
@@ -593,6 +750,7 @@ restrictive = ["TOML-LICENSE-1", "TOML-LICENSE-2"]"#,
     fn test_license_config_serde() {
         let config = LicenseConfig {
             restrictive: vec!["MIT".to_string(), "Apache-2.0".to_string()],
+            ignore: Vec::new(),
         };
 
         let json = serde_json::to_string(&config).unwrap();
@@ -689,6 +847,7 @@ restrictive = [
     fn test_license_config_validation_empty_list() {
         let config = LicenseConfig {
             restrictive: vec![],
+            ignore: Vec::new(),
         };
         // Empty list should pass validation but generate a warning
         assert!(config.validate().is_ok());
@@ -698,6 +857,7 @@ restrictive = [
     fn test_license_config_validation_empty_license() {
         let config = LicenseConfig {
             restrictive: vec!["MIT".to_string(), "".to_string(), "GPL-3.0".to_string()],
+            ignore: Vec::new(),
         };
         let result = config.validate();
         assert!(result.is_err());
@@ -716,6 +876,7 @@ restrictive = [
                 "MIT".to_string(),
                 "Apache-2.0".to_string(),
             ],
+            ignore: Vec::new(),
         };
         let result = config.validate();
         assert!(result.is_err());
@@ -733,6 +894,7 @@ restrictive = [
                 "GPL-3.0".to_string(),
                 "SEE LICENSE IN LICENSE".to_string(),
             ],
+            ignore: Vec::new(),
         };
         assert!(config.validate().is_ok());
     }
@@ -756,7 +918,10 @@ restrictive = [
 
     #[test]
     fn test_dependency_config_validation_zero_depth() {
-        let config = DependencyConfig { max_depth: 0 };
+        let config = DependencyConfig {
+            max_depth: 0,
+            ignore: Vec::new(),
+        };
         let result = config.validate();
         assert!(result.is_err());
         assert!(result
@@ -767,7 +932,10 @@ restrictive = [
 
     #[test]
     fn test_dependency_config_validation_excessive_depth() {
-        let config = DependencyConfig { max_depth: 150 };
+        let config = DependencyConfig {
+            max_depth: 150,
+            ignore: Vec::new(),
+        };
         let result = config.validate();
         assert!(result.is_err());
         assert!(result
@@ -778,14 +946,20 @@ restrictive = [
 
     #[test]
     fn test_dependency_config_validation_high_depth_warning() {
-        let config = DependencyConfig { max_depth: 75 };
+        let config = DependencyConfig {
+            max_depth: 75,
+            ignore: Vec::new(),
+        };
         // Should pass validation but generate a warning
         assert!(config.validate().is_ok());
     }
 
     #[test]
     fn test_dependency_config_validation_valid_depth() {
-        let config = DependencyConfig { max_depth: 10 };
+        let config = DependencyConfig {
+            max_depth: 10,
+            ignore: Vec::new(),
+        };
         assert!(config.validate().is_ok());
     }
 
@@ -795,8 +969,12 @@ restrictive = [
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["MIT".to_string(), "GPL-3.0".to_string()],
+                ignore: Vec::new(),
             },
-            dependencies: DependencyConfig { max_depth: 10 },
+            dependencies: DependencyConfig {
+                max_depth: 10,
+                ignore: Vec::new(),
+            },
         };
         assert!(config.validate().is_ok());
     }
@@ -807,8 +985,12 @@ restrictive = [
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["".to_string()], // Invalid empty license
+                ignore: Vec::new(),
             },
-            dependencies: DependencyConfig { max_depth: 10 },
+            dependencies: DependencyConfig {
+                max_depth: 10,
+                ignore: Vec::new(),
+            },
         };
         let result = config.validate();
         assert!(result.is_err());
@@ -824,8 +1006,12 @@ restrictive = [
             strict: false,
             licenses: LicenseConfig {
                 restrictive: vec!["MIT".to_string()],
+                ignore: Vec::new(),
             },
-            dependencies: DependencyConfig { max_depth: 0 }, // Invalid zero depth
+            dependencies: DependencyConfig {
+                max_depth: 0,
+                ignore: Vec::new(),
+            }, // Invalid zero depth
         };
         let result = config.validate();
         assert!(result.is_err());
@@ -901,5 +1087,415 @@ max_depth = 5"#,
                     .contains(&"CUSTOM-LICENSE".to_string()));
             },
         );
+    }
+
+    // Tests for ignore licenses functionality
+    #[test]
+    fn test_toml_config_with_ignore() {
+        temp_env::with_var("FELUDA_LICENSES_IGNORE", None::<&str>, || {
+            let dir = setup();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            fs::write(
+                ".feluda.toml",
+                r#"[licenses]
+restrictive = ["GPL-3.0"]
+ignore = ["MIT", "Apache-2.0"]"#,
+            )
+            .unwrap();
+
+            let config = load_config().unwrap();
+            assert_eq!(config.licenses.ignore.len(), 2);
+            assert!(config.licenses.ignore.contains(&"MIT".to_string()));
+            assert!(config.licenses.ignore.contains(&"Apache-2.0".to_string()));
+        });
+    }
+
+    #[test]
+    fn test_env_config_with_ignore() {
+        temp_env::with_var(
+            "FELUDA_LICENSES_IGNORE",
+            Some(r#"["MIT","BSD-3-Clause"]"#),
+            || {
+                let dir = setup();
+                std::env::set_current_dir(dir.path()).unwrap();
+
+                let config = load_config().unwrap();
+                assert_eq!(config.licenses.ignore.len(), 2);
+                assert!(config.licenses.ignore.contains(&"MIT".to_string()));
+                assert!(config.licenses.ignore.contains(&"BSD-3-Clause".to_string()));
+            },
+        );
+    }
+
+    #[test]
+    fn test_env_ignore_overrides_toml() {
+        temp_env::with_var("FELUDA_LICENSES_IGNORE", Some(r#"["ENV-IGNORE"]"#), || {
+            let dir = setup();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            fs::write(
+                ".feluda.toml",
+                r#"[licenses]
+ignore = ["TOML-IGNORE-1", "TOML-IGNORE-2"]"#,
+            )
+            .unwrap();
+
+            let config = load_config().unwrap();
+            assert_eq!(config.licenses.ignore.len(), 1);
+            assert!(config.licenses.ignore.contains(&"ENV-IGNORE".to_string()));
+        });
+    }
+
+    #[test]
+    fn test_empty_ignore_list() {
+        temp_env::with_var("FELUDA_LICENSES_IGNORE", None::<&str>, || {
+            let dir = tempfile::tempdir().unwrap();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            fs::write(
+                ".feluda.toml",
+                r#"[licenses]
+ignore = []"#,
+            )
+            .unwrap();
+
+            let config = load_config().unwrap();
+            assert_eq!(config.licenses.ignore.len(), 0);
+        });
+    }
+
+    #[test]
+    fn test_license_config_validation_ignore_empty_license() {
+        let config = LicenseConfig {
+            restrictive: vec!["GPL-3.0".to_string()],
+            ignore: vec!["MIT".to_string(), "".to_string(), "Apache-2.0".to_string()],
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Empty license string"));
+    }
+
+    #[test]
+    fn test_license_config_validation_ignore_duplicate_licenses() {
+        let config = LicenseConfig {
+            restrictive: vec!["GPL-3.0".to_string()],
+            ignore: vec![
+                "MIT".to_string(),
+                "Apache-2.0".to_string(),
+                "MIT".to_string(),
+            ],
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("Duplicate licenses"));
+        assert!(error_msg.contains("ignore list"));
+    }
+
+    #[test]
+    fn test_license_config_validation_ignore_overlap_with_restrictive() {
+        let config = LicenseConfig {
+            restrictive: vec!["GPL-3.0".to_string(), "MIT".to_string()],
+            ignore: vec!["MIT".to_string(), "Apache-2.0".to_string()],
+        };
+        // Should pass validation but generate a warning
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_license_config_with_all_fields() {
+        let config = LicenseConfig {
+            restrictive: vec!["GPL-3.0".to_string(), "AGPL-3.0".to_string()],
+            ignore: vec!["MIT".to_string(), "Apache-2.0".to_string()],
+        };
+        assert!(config.validate().is_ok());
+        assert_eq!(config.restrictive.len(), 2);
+        assert_eq!(config.ignore.len(), 2);
+    }
+
+    #[test]
+    fn test_load_config_toml_with_comments() {
+        temp_env::with_var("FELUDA_LICENSES_IGNORE", None::<&str>, || {
+            let dir = tempfile::tempdir().unwrap();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            fs::write(
+                ".feluda.toml",
+                r#"# Feluda configuration file
+[licenses]
+# List of restrictive licenses
+restrictive = ["GPL-3.0"]
+# Licenses to ignore
+ignore = [
+    "MIT",          # MIT License
+    "Apache-2.0",   # Apache License
+]"#,
+            )
+            .unwrap();
+
+            let config = load_config().unwrap();
+            assert_eq!(config.licenses.restrictive.len(), 1);
+            assert_eq!(config.licenses.ignore.len(), 2);
+            assert!(config.licenses.ignore.contains(&"MIT".to_string()));
+            assert!(config.licenses.ignore.contains(&"Apache-2.0".to_string()));
+        });
+    }
+
+    #[test]
+    fn test_default_ignore_list_is_empty() {
+        let config = FeludaConfig::default();
+        assert!(config.licenses.ignore.is_empty());
+    }
+
+    #[test]
+    fn test_load_config_ignore_serde() {
+        let config = LicenseConfig {
+            restrictive: vec!["GPL-3.0".to_string()],
+            ignore: vec!["MIT".to_string(), "Apache-2.0".to_string()],
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(json.contains("MIT"));
+        assert!(json.contains("Apache-2.0"));
+
+        let deserialized: LicenseConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.ignore.len(), 2);
+        assert!(deserialized.ignore.contains(&"MIT".to_string()));
+    }
+
+    // Tests for dependency ignore functionality
+    #[test]
+    fn test_dependency_config_ignore_basic() {
+        let config = DependencyConfig {
+            max_depth: 10,
+            ignore: vec![IgnoreDependency {
+                name: "lodash".to_string(),
+                version: "4.17.21".to_string(),
+                reason: "Test reason".to_string(),
+            }],
+        };
+        assert!(config.should_ignore_dependency("lodash", Some("4.17.21")));
+        assert!(!config.should_ignore_dependency("lodash", Some("4.17.20")));
+        assert!(!config.should_ignore_dependency("underscore", Some("4.17.21")));
+    }
+
+    #[test]
+    fn test_dependency_config_ignore_all_versions() {
+        let config = DependencyConfig {
+            max_depth: 10,
+            ignore: vec![IgnoreDependency {
+                name: "lodash".to_string(),
+                version: "".to_string(),
+                reason: "Ignore all versions".to_string(),
+            }],
+        };
+        assert!(config.should_ignore_dependency("lodash", Some("4.17.21")));
+        assert!(config.should_ignore_dependency("lodash", Some("4.17.20")));
+        assert!(config.should_ignore_dependency("lodash", None));
+        assert!(!config.should_ignore_dependency("underscore", Some("1.0.0")));
+    }
+
+    #[test]
+    fn test_dependency_config_should_ignore_dependency_multiple() {
+        let config = DependencyConfig {
+            max_depth: 10,
+            ignore: vec![
+                IgnoreDependency {
+                    name: "lodash".to_string(),
+                    version: "4.17.21".to_string(),
+                    reason: "Specific version".to_string(),
+                },
+                IgnoreDependency {
+                    name: "underscore".to_string(),
+                    version: "".to_string(),
+                    reason: "All versions".to_string(),
+                },
+            ],
+        };
+        assert!(config.should_ignore_dependency("lodash", Some("4.17.21")));
+        assert!(!config.should_ignore_dependency("lodash", Some("4.17.20")));
+        assert!(config.should_ignore_dependency("underscore", Some("1.0.0")));
+        assert!(config.should_ignore_dependency("underscore", None));
+    }
+
+    #[test]
+    fn test_dependency_config_validation_empty_ignore() {
+        let config = DependencyConfig {
+            max_depth: 10,
+            ignore: Vec::new(),
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_dependency_config_validation_empty_name() {
+        let config = DependencyConfig {
+            max_depth: 10,
+            ignore: vec![IgnoreDependency {
+                name: "".to_string(),
+                version: "1.0.0".to_string(),
+                reason: "Test".to_string(),
+            }],
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Empty dependency name"));
+    }
+
+    #[test]
+    fn test_dependency_config_validation_duplicate_dependencies() {
+        let config = DependencyConfig {
+            max_depth: 10,
+            ignore: vec![
+                IgnoreDependency {
+                    name: "lodash".to_string(),
+                    version: "4.17.21".to_string(),
+                    reason: "First".to_string(),
+                },
+                IgnoreDependency {
+                    name: "lodash".to_string(),
+                    version: "4.17.21".to_string(),
+                    reason: "Second".to_string(),
+                },
+            ],
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Duplicate dependencies"));
+    }
+
+    #[test]
+    fn test_dependency_config_validation_no_reason_warning() {
+        let config = DependencyConfig {
+            max_depth: 10,
+            ignore: vec![IgnoreDependency {
+                name: "lodash".to_string(),
+                version: "4.17.21".to_string(),
+                reason: "".to_string(),
+            }],
+        };
+        // Should pass validation but generate a warning
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_toml_config_with_dependency_ignore() {
+        temp_env::with_var("FELUDA_LICENSES_RESTRICTIVE", None::<&str>, || {
+            let dir = tempfile::tempdir().unwrap();
+            std::env::set_current_dir(dir.path()).unwrap();
+
+            fs::write(
+                ".feluda.toml",
+                r#"[licenses]
+restrictive = ["GPL-3.0"]
+
+[[dependencies.ignore]]
+name = "lodash"
+version = "4.17.21"
+reason = "Dependency within same repo"
+
+[[dependencies.ignore]]
+name = "underscore"
+version = ""
+reason = "All versions ignored"
+"#,
+            )
+            .unwrap();
+
+            let config = load_config().unwrap();
+            assert_eq!(config.dependencies.ignore.len(), 2);
+            assert!(config
+                .dependencies
+                .should_ignore_dependency("lodash", Some("4.17.21")));
+            assert!(!config
+                .dependencies
+                .should_ignore_dependency("lodash", Some("4.17.20")));
+            assert!(config
+                .dependencies
+                .should_ignore_dependency("underscore", Some("1.0.0")));
+        });
+    }
+
+    #[test]
+    fn test_feluda_config_with_dependency_ignore() {
+        let config = FeludaConfig {
+            strict: false,
+            licenses: LicenseConfig {
+                restrictive: vec!["GPL-3.0".to_string()],
+                ignore: Vec::new(),
+            },
+            dependencies: DependencyConfig {
+                max_depth: 10,
+                ignore: vec![IgnoreDependency {
+                    name: "lodash".to_string(),
+                    version: "4.17.21".to_string(),
+                    reason: "Test".to_string(),
+                }],
+            },
+        };
+        assert!(config.validate().is_ok());
+        assert!(config
+            .dependencies
+            .should_ignore_dependency("lodash", Some("4.17.21")));
+    }
+
+    #[test]
+    fn test_dependency_ignore_serialization() {
+        let dep = IgnoreDependency {
+            name: "lodash".to_string(),
+            version: "4.17.21".to_string(),
+            reason: "Test reason".to_string(),
+        };
+
+        let json = serde_json::to_string(&dep).unwrap();
+        assert!(json.contains("lodash"));
+        assert!(json.contains("4.17.21"));
+        assert!(json.contains("Test reason"));
+
+        let deserialized: IgnoreDependency = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.name, "lodash");
+        assert_eq!(deserialized.version, "4.17.21");
+        assert_eq!(deserialized.reason, "Test reason");
+    }
+
+    #[test]
+    fn test_default_dependency_config() {
+        let config = DependencyConfig::default();
+        assert_eq!(config.max_depth, 10);
+        assert!(config.ignore.is_empty());
+    }
+
+    #[test]
+    fn test_dependency_ignore_empty_version_field() {
+        let config = DependencyConfig {
+            max_depth: 10,
+            ignore: vec![
+                IgnoreDependency {
+                    name: "package1".to_string(),
+                    version: "".to_string(),
+                    reason: "Ignore all versions".to_string(),
+                },
+                IgnoreDependency {
+                    name: "package2".to_string(),
+                    version: "1.0.0".to_string(),
+                    reason: "Ignore specific version".to_string(),
+                },
+            ],
+        };
+
+        assert!(config.should_ignore_dependency("package1", Some("any-version")));
+        assert!(config.should_ignore_dependency("package1", None));
+        assert!(config.should_ignore_dependency("package2", Some("1.0.0")));
+        assert!(!config.should_ignore_dependency("package2", Some("2.0.0")));
     }
 }
