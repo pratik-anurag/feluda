@@ -525,7 +525,7 @@ We've an awesome ✨ TUI mode available to browse through the dependencies in a 
 feluda --gui
 ```
 
-![ss-gui](https://github.com/user-attachments/assets/f946fb1e-a36b-428b-b79f-90da0beface2)
+![ss-gui](https://github.com/user-attachments/assets/a799fe18-5700-4f2c-b6ac-4a401cdc4956)
 
 ## CI/CD Integration
 
