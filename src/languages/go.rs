@@ -3,7 +3,7 @@ use reqwest::blocking::Client;
 use scraper::{Html, Selector};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread::sleep;
 use std::time::Duration;
@@ -420,10 +420,10 @@ fn parse_go_module_version(module_str: &str) -> Option<(String, String)> {
 /// Fetch the license for a Go dependency, trying local sources first, then pkg.go.dev
 pub fn fetch_license_for_go_dependency(
     name: impl Into<String>,
-    _version: impl Into<String>,
+    version: impl Into<String>,
 ) -> String {
     let name = name.into();
-    let _version = _version.into();
+    let version = version.into();
 
     if let Some(license) = get_license_from_local_go_mod(&name) {
         log(
@@ -433,7 +433,7 @@ pub fn fetch_license_for_go_dependency(
         return license;
     }
 
-    if let Some(license) = get_license_from_go_module_cache(&name) {
+    if let Some(license) = get_license_from_go_module_cache(&name, &version) {
         log(
             LogLevel::Info,
             &format!("Found license in Go module cache for {name}: {license}"),
@@ -465,42 +465,92 @@ fn get_license_from_local_go_mod(package_name: &str) -> Option<String> {
     None
 }
 
-fn get_license_from_go_module_cache(package_name: &str) -> Option<String> {
+fn get_license_from_go_module_cache(package_name: &str, version: &str) -> Option<String> {
+    let module_cache = get_gomodcache_path()?;
+    let exact_path = build_module_cache_path(&module_cache, package_name, version);
+    if let Some(license) = read_license_from_dir(&exact_path) {
+        return Some(license)
+    }
+    find_license_in_any_version(&module_cache, package_name)
+}
+
+fn get_gomodcache_path() -> Option<PathBuf> {
+    if let Ok(output) = Command::new("go").args(["env","GOMODCACHE"]).output() {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                let path_buf = PathBuf::from(&path);
+                if path_buf.exists() {
+                    return Some(path_buf)
+                }
+            }
+        }
+    }
+
     let home_dir = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .ok()?;
 
     let gopath = std::env::var("GOPATH").unwrap_or_else(|_| format!("{home_dir}/go"));
-    let module_cache = Path::new(&gopath).join("pkg").join("mod");
+    let fallback = Path::new(&gopath).join("pkg").join("mod");
+    if fallback.exists() {
+        Some(fallback)
+    } else {
+        None
+    }
+}
 
-    if !module_cache.exists() {
-        return None;
+fn escape_go_module_path(module: &str) -> String {
+    let mut escaped = String::with_capacity(module.len());
+    for ch in module.chars() {
+        match ch {
+            '!' => escaped.push_str("!!"),
+            'A'..='Z' => {
+                escaped.push('!');
+                escaped.extend(ch.to_lowercase());
+            }
+            _ => escaped.push(ch),
+        }
+    }
+    escaped
+}
+
+fn build_module_cache_path(root: &Path, module: &str, version: &str) -> PathBuf {
+    let escaped = escape_go_module_path(module);
+    root.join(format!("{escaped}@{version}"))
+}
+
+fn read_license_from_dir(dir : &Path) -> Option<String> {
+    if !dir.exists() {
+        return None
     }
 
-    let package_path_normalized = package_name.to_lowercase().replace('/', "!");
+    let license_files = [
+        "LICENSE", "LICENSE.txt", "LICENSE.md", "COPYING", "COPYING.md",
+    ];
+    for license_file in &license_files {
+        let license_path = dir.join(license_file);
+        if license_path.exists() {
+            if let Ok(content) = fs::read_to_string(&license_path) {
+                if let Some(license) = detect_license_from_content(&content) {
+                    return Some(license)
+                }
+            }
+        }
+    }
+    None
+}
 
-    if let Ok(entries) = fs::read_dir(&module_cache) {
+fn find_license_in_any_version(root: &Path, module: &str) -> Option<String> {
+    let escaped = escape_go_module_path(module);
+    let prefix = format!("{escaped}@");
+    if let Ok(entries) = fs::read_dir(root) {
         for entry in entries.flatten() {
             let path = entry.path();
-            let dir_name = path.file_name()?.to_str()?;
-
-            if dir_name.to_lowercase().contains(&package_path_normalized) {
-                let license_files = [
-                    "LICENSE",
-                    "LICENSE.txt",
-                    "LICENSE.md",
-                    "COPYING",
-                    "COPYING.md",
-                ];
-
-                for license_file in &license_files {
-                    let license_path = path.join(license_file);
-                    if license_path.exists() {
-                        if let Ok(content) = fs::read_to_string(&license_path) {
-                            if let Some(license) = detect_license_from_content(&content) {
-                                return Some(license);
-                            }
-                        }
+            if let Some(file_name) = path.file_name().and_then(|s| s.to_str()) {
+                if file_name.starts_with(&prefix) {
+                    if let Some(license) = read_license_from_dir(&path) {
+                        return Some(license);
                     }
                 }
             }
